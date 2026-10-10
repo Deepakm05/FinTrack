@@ -35,6 +35,16 @@
         </receiver>
 
         <service
+            android:name=".notify.PaymentNotificationListener"
+            android:exported="true"
+            android:label="FinTrack payment apps"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".server.LinkService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

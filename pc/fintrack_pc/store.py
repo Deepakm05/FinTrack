@@ -321,6 +321,7 @@ class Store:
         status: str = "all",
         direction: str = "ALL",
         category: str | None = None,
+        source: str | None = None,
         include_duplicates: bool = True,
         query: str | None = None,
         limit: int = 200,
@@ -335,6 +336,8 @@ class Store:
             where.append("t.direction = ?"); args.append(direction)
         if category:
             where.append("t.category = ? COLLATE NOCASE"); args.append(category)
+        if source in ("BANK", "DELIVERY", "UPI_APP"):
+            where.append("t.source_type = ?"); args.append(source)
         if query:
             where.append("(t.body LIKE ? OR t.sender_key LIKE ?)"); args += [f"%{query}%", f"%{query}%"]
         if status == "uncategorized":

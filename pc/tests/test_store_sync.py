@@ -121,3 +121,16 @@ def test_wrong_token_gives_clear_error(app, phone, tmp_path):
     bad = PhoneClient("http://phone.test", "nope", transport=httpx.MockTransport(phone.handler))
     with pytest.raises(PhoneError, match="token"):
         bad.status()
+
+
+def test_upi_notifications_filter_and_dedupe(app, phone):
+    phone.add("bank", 349, body="Rs 349 debited via UPI to swiggy@icici")
+    phone.add("gpay", 349, sender="GPAY", source="UPI_APP", body="Paid ₹349 to Swiggy", dup_of="bank", dup_state="auto")
+    phone.add("swg", 349, sender="SWIGGY", source="DELIVERY", dup_of="bank", dup_state="auto")
+    phone.add("tea", 40, sender="GPAY", source="UPI_APP", body="₹40 paid to Ramesh Tea Stall")
+    sync.pull(app.store, app.phone)
+    rows, total = app.store.list_transactions(source="UPI_APP")
+    assert total == 2 and {r["uid"] for r in rows} == {"gpay", "tea"}
+    assert app.store.summary(None, None)["total"] == 349 + 40
+    app.store.set_labels([("bank", "Food & Dining")], "manual")
+    assert app.store.get("gpay")["category"] == app.store.get("swg")["category"] == "Food & Dining"

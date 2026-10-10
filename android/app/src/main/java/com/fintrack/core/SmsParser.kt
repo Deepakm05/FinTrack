@@ -72,6 +72,7 @@ object SmsParser {
         val direction = when (sourceType) {
             SourceType.BANK -> bankDirection(lower)
             SourceType.DELIVERY -> deliveryDirection(lower)
+            SourceType.UPI_APP -> null // only notifications produce UPI_APP rows
         } ?: return null
 
         val amountPaise = extractAmountPaise(text) ?: return null

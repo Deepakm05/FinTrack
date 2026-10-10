@@ -107,12 +107,17 @@ class TransactionStore private constructor(context: Context) :
                 db.update(
                     "txn",
                     ContentValues().apply {
-                        put("dup_of", m.bankUid)
+                        put("dup_of", m.mainUid)
                         put("dup_score", m.score)
                         put("dup_state", m.state.wire)
                         put("version", nextVersion(db))
                     },
-                    "uid = ?", arrayOf(m.deliveryUid),
+                    "uid = ?", arrayOf(m.dupUid),
+                )
+                // Keep links one level deep: anything linked to the new duplicate now points at the main row.
+                db.execSQL(
+                    "UPDATE txn SET dup_of = ?, version = ? WHERE dup_of = ?",
+                    arrayOf(m.mainUid, nextVersion(db), m.dupUid),
                 )
             }
             db.setTransactionSuccessful()
@@ -122,17 +127,20 @@ class TransactionStore private constructor(context: Context) :
         }
     }
 
-    /** Opposite-source rows with the same amount within 24 h that are not linked yet. */
+    /**
+     * Rows from another source with the same amount within 24 h that are not a duplicate themselves
+     * and are not already linked to a row of the new row's source.
+     */
     private fun dupCandidates(db: SQLiteDatabase, t: DuplicateMatcher.Txn): List<DuplicateMatcher.Txn> {
-        val other = if (t.sourceType == SourceType.BANK) SourceType.DELIVERY else SourceType.BANK
         val sql = """SELECT uid, source_type, sender_key, body, amount_paise, direction, sent_at FROM txn a
-            WHERE uid != ? AND amount_paise = ? AND direction = ? AND source_type = ?
+            WHERE uid != ? AND amount_paise = ? AND direction = ? AND source_type != ?
               AND sent_at BETWEEN ? AND ?
               AND dup_of IS NULL
-              AND NOT EXISTS (SELECT 1 FROM txn b WHERE b.dup_of = a.uid)"""
+              AND NOT EXISTS (SELECT 1 FROM txn b WHERE b.dup_of = a.uid AND b.source_type = ?)"""
         val args = arrayOf(
-            t.uid, t.amountPaise.toString(), t.direction.name, other.name,
+            t.uid, t.amountPaise.toString(), t.direction.name, t.sourceType.name,
             (t.sentAt - DuplicateMatcher.WEAK_GAP_MS).toString(), (t.sentAt + DuplicateMatcher.WEAK_GAP_MS).toString(),
+            t.sourceType.name,
         )
         return db.rawQuery(sql, args).use { c ->
             buildList {
@@ -211,7 +219,7 @@ class TransactionStore private constructor(context: Context) :
 
     private fun nextVersion(db: SQLiteDatabase): Long = maxVersion(db) + 1
 
-    /** Same sender + same text + same minute = the same SMS seen twice (live receiver and inbox import). */
+    /** Same sender + same text + same minute = the same message seen twice (receiver + import, notification updates). */
     private fun dedupKey(senderKey: String, body: String, sentAt: Long): String {
         val digest = MessageDigest.getInstance("SHA-256").digest("$senderKey|${sentAt / 60_000}|$body".toByteArray())
         return digest.joinToString("") { "%02x".format(it) }

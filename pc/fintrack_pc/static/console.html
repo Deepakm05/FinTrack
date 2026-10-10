@@ -69,7 +69,8 @@
 <div id="toast"></div>
 
 <script>
-const state = { tab: "txns", categories: [], month: new Date().toISOString().slice(0, 7), status: "all", q: "", category: "" };
+const state = { tab: "txns", categories: [], month: new Date().toISOString().slice(0, 7), status: "all", q: "", category: "", source: "" };
+const SOURCES = { BANK: "bank SMS", DELIVERY: "delivery app SMS", UPI_APP: "UPI app notification" };
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const inr = n => "₹" + Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -104,7 +105,7 @@ function labelChips(r) {
   if (r.label_source && r.label_source !== "manual") chips.push(`<span class="chip ${r.reviewed ? "" : "warn"}">${esc(r.label_source)}${r.reviewed ? " ✓" : " · unreviewed"}</span>`);
   if (r.label_source === "manual") chips.push(`<span class="chip">manual</span>`);
   if (r.dup_of) chips.push(`<span class="chip ${r.dup_state === "possible" ? "warn" : ""}">duplicate: ${esc(r.dup_state)}</span>`);
-  if (r.source_type === "DELIVERY") chips.push(`<span class="chip">delivery app</span>`);
+  if (r.source_type !== "BANK") chips.push(`<span class="chip">${esc(SOURCES[r.source_type] || r.source_type)}</span>`);
   return chips.join("");
 }
 
@@ -133,12 +134,13 @@ function wireCheckAll() { const all = $("#all"); if (all) all.addEventListener("
 
 async function renderTxns(main) {
   const [start, end] = monthRange(state.month);
-  const params = new URLSearchParams({ start, end, status: state.status, q: state.q, category: state.category });
+  const params = new URLSearchParams({ start, end, status: state.status, q: state.q, category: state.category, source: state.source });
   const data = await api("/api/transactions?" + params);
   main.innerHTML = `<div class="bar">
       <input type="month" id="month" value="${esc(state.month)}">
       <select id="status">${["all", "uncategorized", "unreviewed", "duplicates"].map(s => `<option ${s === state.status ? "selected" : ""}>${s}</option>`).join("")}</select>
       <select id="catFilter"><option value="">all categories</option>${state.categories.map(n => `<option ${n === state.category ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+      <select id="source"><option value="">all sources</option>${Object.entries(SOURCES).map(([k, v]) => `<option value="${k}" ${k === state.source ? "selected" : ""}>${v}</option>`).join("")}</select>
       <input id="q" placeholder="Search text / sender" value="${esc(state.q)}">
       <span class="muted">${data.total} rows</span>
       <span style="flex:1"></span>
@@ -148,6 +150,7 @@ async function renderTxns(main) {
   $("#status").onchange = e => { state.status = e.target.value; render(); };
   $("#catFilter").onchange = e => { state.category = e.target.value; render(); };
   $("#q").onchange = e => { state.q = e.target.value; render(); };
+  $("#source").onchange = e => { state.source = e.target.value; render(); };
   $("#bulkCat").onchange = async e => {
     const uids = picked(); if (!uids.length) { toast("Select rows first"); e.target.value = ""; return; }
     const r = await api("/api/label", { uids, category: e.target.value }); toast(`Updated ${r.updated}`); render();
@@ -168,7 +171,8 @@ async function renderReview(main) {
 
 async function renderDups(main) {
   const data = await api("/api/transactions?" + new URLSearchParams({ status: "duplicates", limit: 500 }));
-  main.innerHTML = `<div class="card">Each row is a delivery-app SMS linked to a bank SMS for the same purchase.
+  main.innerHTML = `<div class="card">Each row is a second record of a payment already counted — a delivery-app SMS or a
+      GPay / PhonePe / Paytm notification linked to the bank SMS (or UPI notification) for the same payment.
       <b>auto</b> = strong match (not counted), <b>possible</b> = weak match (still counted until you confirm).</div>` +
     txnTable(data.rows, { extra: r => `<button class="btn dup" data-uid="${esc(r.uid)}" data-d="confirmed">Same purchase</button>
       <button class="btn dup" data-uid="${esc(r.uid)}" data-d="rejected">Different</button>` });

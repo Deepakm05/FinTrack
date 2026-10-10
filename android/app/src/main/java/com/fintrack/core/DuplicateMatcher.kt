@@ -3,9 +3,10 @@ package com.fintrack.core
 import kotlin.math.abs
 
 /**
- * Finds the bank SMS and the delivery-app SMS that describe the same purchase
- * (e.g. Swiggy "order placed ₹349" + HDFC "₹349 spent at SWIGGY").
- * The bank SMS stays the main record; the delivery SMS is linked to it as a duplicate.
+ * Finds records from different sources that describe the same payment, e.g.
+ * HDFC "₹349 spent at SWIGGY" + GPay "Paid ₹349 to Swiggy" + Swiggy "order of Rs 349 placed".
+ * One record stays the main one (bank SMS first, then UPI app, then delivery app);
+ * the others are linked to it as duplicates and left out of totals.
  */
 object DuplicateMatcher {
 
@@ -28,18 +29,32 @@ object DuplicateMatcher {
         val sentAt: Long,
     )
 
-    data class Match(val bankUid: String, val deliveryUid: String, val score: Double, val gapMs: Long) {
+    data class Match(val mainUid: String, val dupUid: String, val score: Double, val gapMs: Long) {
         val state: State get() = if (score >= AUTO_THRESHOLD) State.AUTO else State.POSSIBLE
     }
 
-    /** Null when the two can't be the same purchase. */
+    /** Lower rank = better main record. The bank SMS is the real money movement. */
+    fun rank(type: SourceType): Int = when (type) {
+        SourceType.BANK -> 0
+        SourceType.UPI_APP -> 1
+        SourceType.DELIVERY -> 2
+    }
+
+    private fun mainAndDup(a: Txn, b: Txn): Pair<Txn, Txn> = if (rank(a.sourceType) <= rank(b.sourceType)) a to b else b to a
+
+    /** Null when the two can't be the same payment. */
     fun score(a: Txn, b: Txn): Double? {
         if (a.amountPaise != b.amountPaise || a.direction != b.direction) return null
-        val bank = listOf(a, b).firstOrNull { it.sourceType == SourceType.BANK } ?: return null
-        val delivery = listOf(a, b).firstOrNull { it.sourceType == SourceType.DELIVERY } ?: return null
+        if (a.sourceType == b.sourceType) return null
+        val (main, dup) = mainAndDup(a, b)
+        val names = when (dup.sourceType) {
+            SourceType.DELIVERY -> SenderClassifier.deliveryBrand(dup.senderKey)?.bodyNames
+            SourceType.UPI_APP -> SenderClassifier.upiApp(dup.senderKey)?.bodyNames
+            SourceType.BANK -> null
+        }.orEmpty()
+        val mainText = main.body.lowercase()
+        val mentions = names.any { mainText.contains(it) }
         val gap = abs(a.sentAt - b.sentAt)
-        val mentions = SenderClassifier.deliveryBrand(delivery.senderKey)
-            ?.bodyNames?.any { bank.body.lowercase().contains(it) } == true
         val base = when {
             gap <= STRONG_GAP_MS -> 0.9
             gap <= MEDIUM_GAP_MS -> 0.7
@@ -53,7 +68,7 @@ object DuplicateMatcher {
     fun best(new: Txn, candidates: List<Txn>): Match? =
         candidates.mapNotNull { other ->
             val s = score(new, other) ?: return@mapNotNull null
-            val (bank, delivery) = if (new.sourceType == SourceType.BANK) new to other else other to new
-            Match(bank.uid, delivery.uid, s, abs(new.sentAt - other.sentAt))
+            val (main, dup) = mainAndDup(new, other)
+            Match(main.uid, dup.uid, s, abs(new.sentAt - other.sentAt))
         }.sortedWith(compareByDescending<Match> { it.score }.thenBy { it.gapMs }).firstOrNull()
 }

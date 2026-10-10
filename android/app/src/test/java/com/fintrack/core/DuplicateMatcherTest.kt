@@ -17,8 +17,8 @@ class DuplicateMatcherTest {
 
     @Test fun strongMatchWithinTenMinutes() {
         val m = DuplicateMatcher.best(swiggy("d", t0), listOf(bank("b", t0 + 3 * min)))!!
-        assertEquals("b", m.bankUid)
-        assertEquals("d", m.deliveryUid)
+        assertEquals("b", m.mainUid)
+        assertEquals("d", m.dupUid)
         assertEquals(DuplicateMatcher.State.AUTO, m.state)
     }
 
@@ -42,6 +42,27 @@ class DuplicateMatcherTest {
 
     @Test fun picksClosestInTime() {
         val m = DuplicateMatcher.best(swiggy("d", t0), listOf(bank("far", t0 + 8 * min), bank("near", t0 + 1 * min)))!!
-        assertEquals("near", m.bankUid)
+        assertEquals("near", m.mainUid)
+    }
+
+    private fun gpay(uid: String, at: Long, amount: Long = 34900) =
+        DuplicateMatcher.Txn(uid, SourceType.UPI_APP, "GPAY", "Paid ₹349 to Swiggy — Google Pay", amount, Direction.DEBIT, at)
+
+    @Test fun bankSmsIsMainOverUpiNotification() {
+        val m = DuplicateMatcher.best(gpay("g", t0), listOf(bank("b", t0 + 20_000)))!!
+        assertEquals("b", m.mainUid)
+        assertEquals("g", m.dupUid)
+        assertEquals(DuplicateMatcher.State.AUTO, m.state)
+    }
+
+    @Test fun upiNotificationIsMainOverDeliverySms() {
+        val m = DuplicateMatcher.best(swiggy("d", t0 + 5_000), listOf(gpay("g", t0)))!!
+        assertEquals("g", m.mainUid)
+        assertEquals("d", m.dupUid)
+        assertEquals(1.0, m.score, 1e-9) // close in time and GPay text names Swiggy
+    }
+
+    @Test fun twoUpiNotificationsAreSeparatePayments() {
+        assertNull(DuplicateMatcher.best(gpay("g1", t0), listOf(gpay("g2", t0 + 1000))))
     }
 }

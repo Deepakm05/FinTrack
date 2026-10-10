@@ -26,9 +26,11 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.fintrack.core.Direction
+import com.fintrack.core.SourceType
 import com.fintrack.data.Prefs
 import com.fintrack.data.TransactionStore
 import com.fintrack.data.TxnRow
+import com.fintrack.notify.PaymentNotificationListener
 import com.fintrack.server.LinkService
 import com.fintrack.sms.SmsIngest
 import java.text.NumberFormat
@@ -46,6 +48,8 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var permissionBox: LinearLayout
+    private lateinit var notifyStatus: TextView
+    private lateinit var notifyButton: Button
     private lateinit var summary: TextView
     private lateinit var linkSwitch: Switch
     private lateinit var modeGroup: RadioGroup
@@ -80,7 +84,7 @@ class MainActivity : Activity() {
         val root = vertical().apply { setPadding(dp(16), dp(16), dp(16), dp(32)) }
 
         root.addView(text("FinTrack", 24f, bold = true))
-        root.addView(text("Bank & delivery SMS → date + amount. Categorize on your PC.", 13f, color = GREY))
+        root.addView(text("Bank / delivery SMS and payment-app notifications → date + amount. Categorize on your PC.", 13f, color = GREY))
 
         permissionBox = card().apply {
             addView(text("SMS permission needed", 16f, bold = true))
@@ -97,6 +101,16 @@ class MainActivity : Activity() {
             ))
         }
         root.addView(permissionBox)
+
+        notifyStatus = text("", 13f)
+        notifyButton = button("Turn on notification access") {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        root.addView(card().apply {
+            addView(text("Payment apps", 16f, bold = true))
+            addView(notifyStatus)
+            addView(notifyButton)
+        })
 
         summary = text("", 15f)
         root.addView(card().apply {
@@ -152,6 +166,14 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         permissionBox.visibility = if (hasSmsPermission()) View.GONE else View.VISIBLE
+        val notifyOn = PaymentNotificationListener.isEnabled(this)
+        notifyStatus.text = if (notifyOn) {
+            "ON · reading GPay, PhonePe, Paytm, BHIM and CRED notifications only."
+        } else {
+            "OFF · catches UPI payments that don't send a bank SMS. Turn on FinTrack in the list. " +
+                "If it's greyed out: App info → ⋮ → Allow restricted settings."
+        }
+        notifyButton.visibility = if (notifyOn) View.GONE else View.VISIBLE
         linkSwitch.isChecked = LinkService.running
         addressText.text = when {
             LinkService.lastError != null -> "Could not start: ${LinkService.lastError}"
@@ -180,7 +202,7 @@ class MainActivity : Activity() {
             if (hidden > 0) " · $hidden duplicates hidden" else ""
 
         list.removeAllViews()
-        if (recent.isEmpty()) list.addView(text("Nothing yet. New bank / delivery SMS will appear here.", 14f, color = GREY))
+        if (recent.isEmpty()) list.addView(text("Nothing yet. New bank / delivery SMS and payment-app notifications will appear here.", 14f, color = GREY))
         recent.forEach { list.addView(txnView(it)) }
     }
 
@@ -202,7 +224,8 @@ class MainActivity : Activity() {
                     color = if (t.direction == Direction.DEBIT) Color.rgb(0xB0, 0x20, 0x20) else Color.rgb(0x1B, 0x7A, 0x3A)),
                 text("  [${t.category ?: "—"}]", 14f, color = GREY),
             ))
-            addView(text("${t.senderKey} · ${sent.format(timeFormat)}$dup", 12f, color = GREY))
+            val via = if (t.sourceType == SourceType.UPI_APP) " · app notification" else ""
+            addView(text("${t.senderKey}$via · ${sent.format(timeFormat)}$dup", 12f, color = GREY))
             addView(text(t.body, 12f).apply { maxLines = 2 })
         }
     }

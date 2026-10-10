@@ -58,6 +58,7 @@ def build_console(app) -> Starlette:
             status=q.get("status", "all"),
             direction=q.get("direction", "ALL"),
             category=q.get("category") or None,
+            source=q.get("source") or None,
             query=q.get("q") or None,
             include_duplicates=True,
             limit=min(int(q.get("limit", 300)), 2000),

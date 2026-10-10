@@ -11,8 +11,8 @@ android {
         applicationId = "com.fintrack.sms"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     // A stable signing key lets you install updates over the old app without losing data.

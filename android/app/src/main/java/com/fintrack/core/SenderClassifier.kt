@@ -23,6 +23,15 @@ object SenderClassifier {
         Brand("Dominos", listOf("DOMINO", "DPIZZA"), listOf("domino")),
     )
 
+    /** UPI apps whose notifications FinTrack reads. [senderKeys] hold the key stored for those rows. */
+    val UPI_APPS = listOf(
+        Brand("Google Pay", listOf("GPAY"), listOf("google pay", "gpay")),
+        Brand("PhonePe", listOf("PHONEPE"), listOf("phonepe")),
+        Brand("Paytm", listOf("PAYTM"), listOf("paytm")),
+        Brand("BHIM", listOf("BHIM"), listOf("bhim")),
+        Brand("CRED", listOf("CRED"), listOf("cred")),
+    )
+
     /** Substrings of bank / card / UPI-app SMS headers (DLT sender IDs). */
     val BANK_KEYS = listOf(
         "HDFC", "ICICI", "SBI", "AXIS", "KOTAK", "PNB", "BOI", "BOB", "BARODA", "CANBNK", "CANARA",
@@ -48,6 +57,8 @@ object SenderClassifier {
 
     fun deliveryBrand(senderKey: String): Brand? =
         DELIVERY_BRANDS.firstOrNull { b -> b.senderKeys.any { senderKey.contains(it) } }
+
+    fun upiApp(senderKey: String): Brand? = UPI_APPS.firstOrNull { b -> b.senderKeys.any { senderKey == it } }
 
     /**
      * Classifies an already-normalized sender. Unknown alphanumeric senders count as BANK only
