@@ -12,8 +12,9 @@ import com.fintrack.data.TransactionStore
 import java.util.concurrent.Executors
 
 /**
- * Reads notifications from GPay, PhonePe, Paytm, BHIM and CRED only; every other app is ignored
- * before anything is read. Catches payments that never produce a bank SMS.
+ * Reads notifications only from the apps listed in [NotificationParser.APPS] (UPI apps and merchant
+ * apps like Swiggy, Uber, Rapido); every other app is ignored before anything is read.
+ * Catches payments that never produce a bank SMS.
  */
 class PaymentNotificationListener : NotificationListenerService() {
 

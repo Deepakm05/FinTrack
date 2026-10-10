@@ -67,11 +67,11 @@ CREATE TABLE IF NOT EXISTS email_seen (message_key TEXT PRIMARY KEY, status TEXT
 """
 
 #: Sources the phone owns. Rows from email and bank statements live only on the PC.
-PHONE_SOURCES = ("BANK", "DELIVERY", "UPI_APP")
+PHONE_SOURCES = ("BANK", "DELIVERY", "UPI_APP", "MERCHANT_APP")
 PC_SOURCES = ("EMAIL", "STATEMENT")
 
 # Only phone rows need to be sent back to the phone.
-PUSH_FLAG = "CASE WHEN source_type IN ('BANK', 'DELIVERY', 'UPI_APP') THEN 1 ELSE 0 END"
+PUSH_FLAG = f"CASE WHEN source_type IN ({', '.join(repr(s) for s in PHONE_SOURCES)}) THEN 1 ELSE 0 END"
 
 # Duplicate state: your decision on the PC wins, then a PC-made link (email / statement), then the phone's link.
 DUP_STATE = "COALESCE(t.dup_decision, t.dup_state_pc, t.dup_state_phone)"
@@ -479,7 +479,8 @@ class Store:
     def pending_push(self) -> dict:
         with self.connect() as db:
             rows = db.execute(
-                "SELECT uid, category, dup_decision FROM txn WHERE push_pending = 1 AND source_type IN (?, ?, ?)",
+                f"SELECT uid, category, dup_decision FROM txn WHERE push_pending = 1 "
+                f"AND source_type IN ({', '.join('?' for _ in PHONE_SOURCES)})",
                 PHONE_SOURCES,
             ).fetchall()
             dirty = db.execute("SELECT value FROM meta WHERE key = 'categories_dirty'").fetchone()

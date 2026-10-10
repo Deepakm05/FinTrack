@@ -92,3 +92,14 @@ def test_rejected_link_is_not_recreated(app, phone):
     assert counted_total(app) == 206
     # PC-only rows are never sent to the phone
     assert all(l["uid"] != "e1" for l in app.store.pending_push()["labels"])
+
+
+def test_merchant_app_notification_links_to_receipt_email(app, phone):
+    phone.add("uberapp", 245, sender="UBER", source="MERCHANT_APP", body="Thanks for riding — ₹245 charged", sent_at=T0)
+    sync.pull(app.store, app.phone)
+    app.store.insert_local([email_row("e1", 245, "UBER", T0 + 3 * MIN)])
+    reconcile(app.store)
+    assert app.store.get("e1")["dup_of"] == "uberapp"
+    assert counted_total(app) == 245
+    app.store.set_labels([("uberapp", "Transport")], "manual")
+    assert app.store.pending_push()["labels"] == [{"uid": "uberapp", "category": "Transport"}]

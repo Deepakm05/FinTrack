@@ -168,7 +168,8 @@ class MainActivity : Activity() {
         permissionBox.visibility = if (hasSmsPermission()) View.GONE else View.VISIBLE
         val notifyOn = PaymentNotificationListener.isEnabled(this)
         notifyStatus.text = if (notifyOn) {
-            "ON · reading GPay, PhonePe, Paytm, BHIM and CRED notifications only."
+            "ON · reading only payment notifications from UPI apps (GPay, PhonePe, Paytm, BHIM, CRED) and " +
+                "Swiggy, Zomato, Blinkit, Zepto, Amazon, Flipkart, BigBasket, Myntra, Uber, Rapido, Ola."
         } else {
             "OFF · catches UPI payments that don't send a bank SMS. Turn on FinTrack in the list. " +
                 "If it's greyed out: App info → ⋮ → Allow restricted settings."
@@ -224,7 +225,7 @@ class MainActivity : Activity() {
                     color = if (t.direction == Direction.DEBIT) Color.rgb(0xB0, 0x20, 0x20) else Color.rgb(0x1B, 0x7A, 0x3A)),
                 text("  [${t.category ?: "—"}]", 14f, color = GREY),
             ))
-            val via = if (t.sourceType == SourceType.UPI_APP) " · app notification" else ""
+            val via = if (t.sourceType == SourceType.UPI_APP || t.sourceType == SourceType.MERCHANT_APP) " · app notification" else ""
             addView(text("${t.senderKey}$via · ${sent.format(timeFormat)}$dup", 12f, color = GREY))
             addView(text(t.body, 12f).apply { maxLines = 2 })
         }

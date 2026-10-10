@@ -21,6 +21,9 @@ object SenderClassifier {
         Brand("Nykaa", listOf("NYKAA"), listOf("nykaa")),
         Brand("Ajio", listOf("AJIO"), listOf("ajio")),
         Brand("Dominos", listOf("DOMINO", "DPIZZA"), listOf("domino")),
+        Brand("Uber", listOf("UBER"), listOf("uber")),
+        Brand("Rapido", listOf("RAPIDO"), listOf("rapido")),
+        Brand("Ola", listOf("OLACAB", "OLAMNY"), listOf("olacabs", "ola cabs", "ani technologies")),
     )
 
     /** UPI apps whose notifications FinTrack reads. [senderKeys] hold the key stored for those rows. */

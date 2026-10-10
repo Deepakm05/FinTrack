@@ -71,4 +71,33 @@ class NotificationParserTest {
         val p = parse(PHONEPE, "Paid ₹1,250 to ZEPTO", "Payment successful from account XX1234")!!
         assertFalse(p.maskedBody.contains("1234"))
     }
+
+    @Test fun merchantPaidNotifications() {
+        val swiggy = parse("in.swiggy.android", "Payment received", "₹349 paid for your order from Meghana Foods")!!
+        assertEquals(SourceType.MERCHANT_APP, swiggy.sourceType)
+        assertEquals("SWIGGY", swiggy.senderKey)
+        assertEquals(Direction.DEBIT, swiggy.direction)
+        assertEquals(34900L, swiggy.amountPaise)
+
+        val uber = parse("com.ubercab", "Thanks for riding", "₹245.32 has been charged to your UPI")!!
+        assertEquals(Direction.DEBIT, uber.direction)
+        assertEquals(24532L, uber.amountPaise)
+
+        val rapido = parse("com.rapido.passenger", "Ride completed", "You paid ₹103 to your captain")!!
+        assertEquals("RAPIDO", rapido.senderKey)
+        assertEquals(10300L, rapido.amountPaise)
+    }
+
+    @Test fun merchantRefundIsCredit() {
+        assertEquals(Direction.CREDIT, parse("com.application.zomato", "Refund initiated", "₹220 will be credited back to your account")!!.direction)
+        assertEquals(Direction.CREDIT, parse("com.application.zomato", "Order cancelled", "Refund of ₹220 initiated")!!.direction)
+    }
+
+    @Test fun merchantNonPaymentsIgnored() {
+        assertNull(parse("in.swiggy.android", "Your order is on the way", "Rider will reach in 12 mins"))
+        assertNull(parse("com.application.zomato", "Hungry?", "Flat ₹100 OFF on orders above ₹199. Order now!"))
+        assertNull(parse("com.rapido.passenger", "Captain is arriving", "Fare estimate ₹103"))
+        assertNull(parse("com.ubercab", "Trip cancelled", "Your trip for ₹180 was cancelled"))
+        assertNull(parse("in.amazon.mShop.android.shopping", "Big Billion Days", "Deals from ₹99. Shop now"))
+    }
 }

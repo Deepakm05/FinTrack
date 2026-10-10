@@ -4,19 +4,32 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * Rule-based parser for payment-app notifications (GPay, PhonePe, Paytm, BHIM, CRED).
- * Covers payments that never produce a bank SMS (small UPI payments, UPI Lite, wallets).
+ * Rule-based parser for payment notifications from UPI apps (GPay, PhonePe, Paytm, BHIM, CRED) and from
+ * merchant apps' own "you paid ₹X" notifications (Swiggy, Zomato, Uber, Rapido, ...).
+ * Covers payments that never produce a bank SMS (small UPI payments, UPI Lite, wallets, in-app UPI).
  */
 object NotificationParser {
 
-    data class App(val name: String, val packageName: String, val senderKey: String)
+    /** [senderKey] matches [SenderClassifier] keys so duplicate matching can recognize the brand. */
+    data class App(val name: String, val packageName: String, val senderKey: String, val type: SourceType)
 
     val APPS = listOf(
-        App("Google Pay", "com.google.android.apps.nbu.paisa.user", "GPAY"),
-        App("PhonePe", "com.phonepe.app", "PHONEPE"),
-        App("Paytm", "net.one97.paytm", "PAYTM"),
-        App("BHIM", "in.org.npci.upiapp", "BHIM"),
-        App("CRED", "com.dreamplug.androidapp", "CRED"),
+        App("Google Pay", "com.google.android.apps.nbu.paisa.user", "GPAY", SourceType.UPI_APP),
+        App("PhonePe", "com.phonepe.app", "PHONEPE", SourceType.UPI_APP),
+        App("Paytm", "net.one97.paytm", "PAYTM", SourceType.UPI_APP),
+        App("BHIM", "in.org.npci.upiapp", "BHIM", SourceType.UPI_APP),
+        App("CRED", "com.dreamplug.androidapp", "CRED", SourceType.UPI_APP),
+        App("Swiggy", "in.swiggy.android", "SWIGGY", SourceType.MERCHANT_APP),
+        App("Zomato", "com.application.zomato", "ZOMATO", SourceType.MERCHANT_APP),
+        App("Blinkit", "com.grofers.customerapp", "BLINKT", SourceType.MERCHANT_APP),
+        App("Zepto", "com.zeptoconsumerapp", "ZEPTO", SourceType.MERCHANT_APP),
+        App("Amazon", "in.amazon.mShop.android.shopping", "AMAZON", SourceType.MERCHANT_APP),
+        App("Flipkart", "com.flipkart.android", "FLPKRT", SourceType.MERCHANT_APP),
+        App("BigBasket", "com.bigbasket.mobileapp", "BIGBSK", SourceType.MERCHANT_APP),
+        App("Myntra", "com.myntra.android", "MYNTRA", SourceType.MERCHANT_APP),
+        App("Uber", "com.ubercab", "UBER", SourceType.MERCHANT_APP),
+        App("Rapido", "com.rapido.passenger", "RAPIDO", SourceType.MERCHANT_APP),
+        App("Ola", "com.olacabs.customer", "OLACAB", SourceType.MERCHANT_APP),
     )
 
     fun appFor(packageName: String): App? = APPS.firstOrNull { it.packageName == packageName }
@@ -47,6 +60,17 @@ object NotificationParser {
             """money sent|received by)(?![a-z])"""
     )
 
+    /**
+     * Merchant apps send many notifications (order updates, offers); only ones that say money moved count.
+     * "Payment received" from Swiggy means *you* paid, so merchant apps use their own direction rules.
+     */
+    private val MERCHANT_PAID = Regex(
+        """(?<![a-z])(paid|you paid|payment of|payment (?:successful|done|received|completed|confirmed)|charged|""" +
+            """debited|amount paid|total paid|trip fare|ride fare|fare|order total|bill total)(?![a-z])"""
+    )
+    private val MERCHANT_SKIP = Regex("""(?<![a-z])(cancelled|canceled|estimate|estimated|fare estimate)(?![a-z])""")
+    private val MERCHANT_REFUND = Regex("""(?<![a-z])(refund|refunded|credited back|reversed)(?![a-z])""")
+
     fun parse(
         packageName: String,
         title: String,
@@ -64,20 +88,31 @@ object NotificationParser {
         if (PROMO.containsMatchIn(lower) && !PAYMENT.containsMatchIn(lower)) return null
         if (REMINDER.containsMatchIn(lower) && !DONE.containsMatchIn(lower)) return null
 
-        val direction = direction(lower) ?: return null
+        val direction = when (app.type) {
+            SourceType.MERCHANT_APP -> merchantDirection(lower)
+            else -> direction(lower)
+        } ?: return null
         val amountPaise = SmsParser.extractAmountPaise(combined) ?: return null
         val postedDate = Instant.ofEpochMilli(postedAtMillis).atZone(zone).toLocalDate()
         val bodyDate = SmsParser.extractDate(combined, postedDate)
 
         return ParsedSms(
             senderKey = app.senderKey,
-            sourceType = SourceType.UPI_APP,
+            sourceType = app.type,
             direction = direction,
             amountPaise = amountPaise,
             txnDate = bodyDate ?: postedDate,
             dateFromBody = bodyDate != null,
             maskedBody = Masker.mask(combined),
         )
+    }
+
+    private fun merchantDirection(lower: String): Direction? = when {
+        MERCHANT_REFUND.containsMatchIn(lower) && MERCHANT_SKIP.containsMatchIn(lower) -> Direction.CREDIT
+        MERCHANT_SKIP.containsMatchIn(lower) -> null
+        MERCHANT_REFUND.containsMatchIn(lower) -> Direction.CREDIT
+        MERCHANT_PAID.containsMatchIn(lower) -> Direction.DEBIT
+        else -> null
     }
 
     /** "Rahul paid you ₹500" is money in even though it contains "paid": the earlier, longer match wins. */

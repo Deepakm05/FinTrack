@@ -19,7 +19,7 @@ from .statement_import import StatementError, import_statement as run_statement_
 log = logging.getLogger("fintrack")
 
 INSTRUCTIONS = """FinTrack holds expenses from the user's bank and delivery-app SMS, GPay / PhonePe / Paytm notifications,
-receipt and bank-alert emails, and bank statements (source_type BANK, DELIVERY, UPI_APP, EMAIL, STATEMENT;
+receipt and bank-alert emails, and bank statements (source_type BANK, DELIVERY, UPI_APP, MERCHANT_APP, EMAIL, STATEMENT;
 masked text, date, amount). Each row's "linked" list holds the other records of the same payment: use them too
 when categorizing (e.g. a UPI debit to a personal UPI ID with a linked Rapido email is Transport).
 To categorize: call list_categories, then list_transactions(status="uncategorized"), then categorize with
@@ -105,7 +105,7 @@ def build_server(app: App) -> MCPServer:
         end_date: Annotated[str | None, Field(description="YYYY-MM-DD (ignored when month is given)")] = None,
         status: Literal["uncategorized", "unreviewed", "all"] = "uncategorized",
         direction: Literal["DEBIT", "CREDIT", "ALL"] = "DEBIT",
-        source: Literal["BANK", "DELIVERY", "UPI_APP", "EMAIL", "STATEMENT", "ALL"] = "ALL",
+        source: Literal["BANK", "DELIVERY", "UPI_APP", "MERCHANT_APP", "EMAIL", "STATEMENT", "ALL"] = "ALL",
         include_duplicates: bool = False,
         limit: Annotated[int, Field(ge=1, le=500)] = 100,
         sync_first: bool = True,

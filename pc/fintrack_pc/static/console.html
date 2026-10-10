@@ -73,7 +73,7 @@
 
 <script>
 const state = { tab: "txns", categories: [], month: new Date().toISOString().slice(0, 7), status: "all", q: "", category: "", source: "" };
-const SOURCES = { BANK: "bank SMS", DELIVERY: "delivery app SMS", UPI_APP: "UPI app notification", EMAIL: "email", STATEMENT: "bank statement" };
+const SOURCES = { BANK: "bank SMS", DELIVERY: "delivery app SMS", UPI_APP: "UPI app notification", MERCHANT_APP: "merchant app notification", EMAIL: "email", STATEMENT: "bank statement" };
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const inr = n => "₹" + Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

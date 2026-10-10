@@ -63,7 +63,8 @@ An install with `adb` isn't blocked.
 3. Open FinTrack:
    - **SMS:** tap **Grant**.
    - **Payment apps:** tap **Turn on notification access** and switch on *FinTrack payment apps*. FinTrack reads
-     notifications from GPay, PhonePe, Paytm, BHIM and CRED only. It ignores every other app.
+     payment notifications only from UPI apps (GPay, PhonePe, Paytm, BHIM, CRED) and from Swiggy, Zomato, Blinkit, Zepto,
+     Amazon, Flipkart, BigBasket, Myntra, Uber, Rapido and Ola ("you paid ₹349"). It ignores every other app.
    - If either one shows **"Restricted setting"** or is greyed out: open App info → **⋮** (top right) → **Allow restricted settings**, then try again.
 4. From now on, every bank or delivery SMS and every payment-app notification is parsed and saved.
    **Import older SMS** can add older messages. Notifications only count from the moment access is on, because Android doesn't keep old ones.
@@ -190,12 +191,16 @@ Every change is appended to the `label_history` table and never overwritten. A d
   "₹40 paid to X" / "Payment of ₹349 received by Swiggy" count as money out. "X paid you ₹500" / "Received ₹300 from Y"
   count as money in. Requests, failed or pending payments, UPI Lite / wallet top-ups, cashback, scratch cards and offers are ignored.
   A payment notification that also mentions a reward is still counted.
+- **Merchant app notifications** (Swiggy, Zomato, Blinkit, Zepto, Amazon, Flipkart, BigBasket, Myntra, Uber, Rapido, Ola):
+  counted only when they say money moved ("₹349 paid", "₹245 charged", "You paid ₹103 to your captain", "fare"). Order
+  updates, offers, fare estimates and cancelled trips are ignored. Refunds count as money in.
 - **Amount**: `Rs` / `INR` / `₹` / `/-` / "debited by 1250.00". Balance and limit amounts are skipped.
 - **Date**: `10-10-26`, `10/10/2026`, `2026-10-10`, `10Oct26`, `10 Oct 2026`, `Oct 10, 2026`, `10 Oct`. If the SMS has no date, or the date is more than 45 days away from when the SMS arrived, the SMS time is used.
 - **Masking**: `XX1234`, `****1234`, numbers after `A/c` / `Acct` / `Card ending`, and any run of 9 or more digits all become `XXXX`. The unmasked text is never stored. Emails and statements are masked the same way on the PC.
-- **Duplicates on the phone**: records from **different sources** with the same amount are linked: bank SMS, UPI app notification,
-  delivery-app SMS. The main record is the bank SMS if there is one, then the UPI notification, then the delivery SMS,
-  so one Swiggy order paid with GPay gives one counted row instead of three. Within **10 min** or **2 h** a match is an `auto`
+- **Duplicates on the phone**: records from **different sources** with the same amount are linked: bank SMS, UPI app
+  notification, merchant app notification, merchant SMS. The main record is the bank SMS if there is one, then the UPI
+  notification, then the merchant's notification, then the merchant's SMS, so one Swiggy order paid with GPay gives one
+  counted row instead of four. Within **10 min** or **2 h** a match is an `auto`
   duplicate (not counted). Within **24 h**, and only if the main record names the app, it's a `possible` duplicate (still counted
   until you confirm it). Two notifications from the same app are never linked. An exact repeat (same sender, text and minute) is dropped.
 - **Duplicates on the PC** (email + statement): the PC links these to the phone's records, or to each other, and
@@ -234,6 +239,7 @@ cd pc && pip install -e ".[test]" && pytest  # sync, labels, email, statements, 
 
 - [x] Phase 1: phone parser, masking, duplicates, PC link, sync, MCP tools
 - [x] Phase 2: web console (edit, review, duplicates, categories, dataset export)
-- [x] Phase 1b: GPay / PhonePe / Paytm / BHIM / CRED notifications, three-way duplicate linking
+- [x] Phase 1b: UPI app notifications (GPay / PhonePe / Paytm / BHIM / CRED) and merchant app notifications
+      (Swiggy, Zomato, Uber, Rapido, ...), duplicate linking across all phone sources
 - [x] Receipt emails (Gmail) and bank statement import, with duplicate matching across all sources on the PC
 - [ ] Phase 3: train a local model on the reviewed dataset, compare it against held-out labels, and switch the categorizer between Claude and the model (low-confidence rows fall back to Claude or you)

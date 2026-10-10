@@ -5,7 +5,8 @@ import kotlin.math.abs
 /**
  * Finds records from different sources that describe the same payment, e.g.
  * HDFC "₹349 spent at SWIGGY" + GPay "Paid ₹349 to Swiggy" + Swiggy "order of Rs 349 placed".
- * One record stays the main one (bank SMS first, then UPI app, then delivery app);
+ * One record stays the main one (bank SMS first, then UPI app, then the merchant's own notification,
+ * then the merchant's SMS);
  * the others are linked to it as duplicates and left out of totals.
  */
 object DuplicateMatcher {
@@ -37,7 +38,8 @@ object DuplicateMatcher {
     fun rank(type: SourceType): Int = when (type) {
         SourceType.BANK -> 0
         SourceType.UPI_APP -> 1
-        SourceType.DELIVERY -> 2
+        SourceType.MERCHANT_APP -> 2
+        SourceType.DELIVERY -> 3
     }
 
     private fun mainAndDup(a: Txn, b: Txn): Pair<Txn, Txn> = if (rank(a.sourceType) <= rank(b.sourceType)) a to b else b to a
@@ -48,7 +50,7 @@ object DuplicateMatcher {
         if (a.sourceType == b.sourceType) return null
         val (main, dup) = mainAndDup(a, b)
         val names = when (dup.sourceType) {
-            SourceType.DELIVERY -> SenderClassifier.deliveryBrand(dup.senderKey)?.bodyNames
+            SourceType.DELIVERY, SourceType.MERCHANT_APP -> SenderClassifier.deliveryBrand(dup.senderKey)?.bodyNames
             SourceType.UPI_APP -> SenderClassifier.upiApp(dup.senderKey)?.bodyNames
             SourceType.BANK -> null
         }.orEmpty()

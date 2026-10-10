@@ -2,8 +2,11 @@ package com.fintrack.core
 
 import java.time.LocalDate
 
-/** Where a transaction came from: a bank SMS, a delivery-app SMS, or a UPI app notification. */
-enum class SourceType { BANK, DELIVERY, UPI_APP }
+/**
+ * Where a transaction came from: a bank SMS, a delivery / shopping / ride app SMS, a UPI app notification,
+ * or the merchant app's own notification ("You paid ₹349" from Swiggy, Uber, Rapido...).
+ */
+enum class SourceType { BANK, DELIVERY, UPI_APP, MERCHANT_APP }
 
 /** Money out (DEBIT) or money in (CREDIT). */
 enum class Direction { DEBIT, CREDIT }

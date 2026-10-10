@@ -65,4 +65,18 @@ class DuplicateMatcherTest {
     @Test fun twoUpiNotificationsAreSeparatePayments() {
         assertNull(DuplicateMatcher.best(gpay("g1", t0), listOf(gpay("g2", t0 + 1000))))
     }
+
+    private fun swiggyApp(uid: String, at: Long) =
+        DuplicateMatcher.Txn(uid, SourceType.MERCHANT_APP, "SWIGGY", "Payment received — ₹349 paid for your order", 34900, Direction.DEBIT, at)
+
+    @Test fun merchantNotificationAndMerchantSmsAreOnePayment() {
+        val m = DuplicateMatcher.best(swiggy("sms", t0 + 30_000), listOf(swiggyApp("app", t0)))!!
+        assertEquals("app", m.mainUid) // the app notification outranks the merchant SMS
+        assertEquals("sms", m.dupUid)
+    }
+
+    @Test fun bankSmsOutranksMerchantNotification() {
+        val m = DuplicateMatcher.best(swiggyApp("app", t0), listOf(bank("b", t0 + 60_000)))!!
+        assertEquals("b", m.mainUid)
+    }
 }
