@@ -63,12 +63,21 @@ CREATE TABLE IF NOT EXISTS label_history (
 );
 CREATE INDEX IF NOT EXISTS label_history_uid ON label_history(uid);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS email_seen (message_key TEXT PRIMARY KEY, status TEXT NOT NULL, at INTEGER NOT NULL);
 """
 
+#: Sources the phone owns. Rows from email and bank statements live only on the PC.
+PHONE_SOURCES = ("BANK", "DELIVERY", "UPI_APP")
+PC_SOURCES = ("EMAIL", "STATEMENT")
+
+# Only phone rows need to be sent back to the phone.
+PUSH_FLAG = "CASE WHEN source_type IN ('BANK', 'DELIVERY', 'UPI_APP') THEN 1 ELSE 0 END"
+
+# Duplicate state: your decision on the PC wins, then a PC-made link (email / statement), then the phone's link.
+DUP_STATE = "COALESCE(t.dup_decision, t.dup_state_pc, t.dup_state_phone)"
+
 # A row counts in totals unless it is linked as a duplicate that was not rejected / only "possible".
-COUNTED = (
-    "(t.dup_of IS NULL OR COALESCE(t.dup_decision, t.dup_state_phone) IN ('possible', 'rejected'))"
-)
+COUNTED = f"(t.dup_of IS NULL OR {DUP_STATE} IN ('possible', 'rejected'))"
 
 PHONE_FIELDS = (
     "sender", "sender_key", "body", "sent_at", "received_at", "txn_date", "date_from_body",
@@ -100,6 +109,9 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            cols = {r["name"] for r in db.execute("PRAGMA table_info(txn)")}
+            if "dup_state_pc" not in cols:
+                db.execute("ALTER TABLE txn ADD COLUMN dup_state_pc TEXT")
             if db.execute("SELECT value FROM meta WHERE key = 'seeded'").fetchone() is None:
                 ts = now_ms()
                 db.executemany(
@@ -156,6 +168,30 @@ class Store:
                 n += 1
         return n
 
+    def insert_local(self, rows: Iterable[dict]) -> int:
+        """Adds email / statement rows (PC-only). Rows already imported (same uid) are skipped."""
+        n = 0
+        with self.connect() as db:
+            for r in rows:
+                cur = db.execute(
+                    f"""INSERT OR IGNORE INTO txn(uid, {', '.join(PHONE_FIELDS)}, phone_version)
+                        VALUES (?, {', '.join('?' for _ in PHONE_FIELDS)}, 0)""",
+                    [r["uid"], *[r.get(f) if f != "date_from_body" else int(bool(r.get(f))) for f in PHONE_FIELDS]],
+                )
+                n += cur.rowcount
+        return n
+
+    def seen_email_keys(self) -> set[str]:
+        with self.connect() as db:
+            return {r[0] for r in db.execute("SELECT message_key FROM email_seen")}
+
+    def mark_email_seen(self, items: Iterable[tuple[str, str]]) -> None:
+        with self.connect() as db:
+            db.executemany(
+                "INSERT OR REPLACE INTO email_seen(message_key, status, at) VALUES (?, ?, ?)",
+                [(k, status, now_ms()) for k, status in items],
+            )
+
     # ------------------------------------------------------------------ categories
 
     def categories(self) -> list[str]:
@@ -205,7 +241,7 @@ class Store:
             uids = [r["uid"] for r in db.execute("SELECT uid FROM txn WHERE category = ? COLLATE NOCASE", (old,))]
             ts = now_ms()
             db.executemany(
-                "UPDATE txn SET category = ?, push_pending = 1 WHERE uid = ?", [(new, u) for u in uids]
+                f"UPDATE txn SET category = ?, push_pending = {PUSH_FLAG} WHERE uid = ?", [(new, u) for u in uids]
             )
             db.executemany(
                 """INSERT INTO label_history(uid, category, previous_category, source, action, at)
@@ -274,7 +310,7 @@ class Store:
             action = "label"
         ts = now_ms()
         db.execute(
-            """UPDATE txn SET category = ?, label_source = ?, reviewed = ?, labeled_at = ?, push_pending = 1
+            f"""UPDATE txn SET category = ?, label_source = ?, reviewed = ?, labeled_at = ?, push_pending = {PUSH_FLAG}
                WHERE uid = ?""",
             (category, None if category is None else source, 1 if source == "manual" and category else 0, ts, uid),
         )
@@ -310,7 +346,7 @@ class Store:
             row = db.execute("SELECT dup_of FROM txn WHERE uid = ?", (uid,)).fetchone()
             if row is None or row["dup_of"] is None:
                 raise StoreError("transaction is not linked as a duplicate")
-            db.execute("UPDATE txn SET dup_decision = ?, push_pending = 1 WHERE uid = ?", (decision, uid))
+            db.execute(f"UPDATE txn SET dup_decision = ?, push_pending = {PUSH_FLAG} WHERE uid = ?", (decision, uid))
 
     # ------------------------------------------------------------------ queries
 
@@ -336,7 +372,7 @@ class Store:
             where.append("t.direction = ?"); args.append(direction)
         if category:
             where.append("t.category = ? COLLATE NOCASE"); args.append(category)
-        if source in ("BANK", "DELIVERY", "UPI_APP"):
+        if source in PHONE_SOURCES + PC_SOURCES:
             where.append("t.source_type = ?"); args.append(source)
         if query:
             where.append("(t.body LIKE ? OR t.sender_key LIKE ?)"); args += [f"%{query}%", f"%{query}%"]
@@ -352,11 +388,33 @@ class Store:
         with self.connect() as db:
             total = db.execute(f"SELECT COUNT(*) FROM txn t WHERE {sql_where}", args).fetchone()[0]
             rows = db.execute(
-                f"""SELECT t.*, {COUNTED} AS counted FROM txn t WHERE {sql_where}
+                f"""SELECT t.*, {COUNTED} AS counted, m.source_type AS main_source, m.sender_key AS main_sender,
+                           m.body AS main_body, m.amount_paise AS main_amount_paise
+                    FROM txn t LEFT JOIN txn m ON m.uid = t.dup_of
+                    WHERE {sql_where}
                     ORDER BY t.txn_date DESC, t.sent_at DESC LIMIT ? OFFSET ?""",
                 [*args, limit, offset],
             ).fetchall()
-        return [self._row(r) for r in rows], total
+            out = [self._row(r) for r in rows]
+            linked = self._linked(db, [r["uid"] for r in out])
+        for r in out:
+            r["linked"] = linked.get(r["uid"], [])
+        return out, total
+
+    @staticmethod
+    def _linked(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[dict]]:
+        """Other records of the same payment (e.g. the Uber receipt email for a UPI debit SMS)."""
+        out: dict[str, list[dict]] = {}
+        for i in range(0, len(uids), 500):
+            chunk = uids[i:i + 500]
+            q = f"""SELECT t.dup_of, t.uid, t.source_type, t.sender_key, t.body, {DUP_STATE} AS state FROM txn t
+                    WHERE t.dup_of IN ({','.join('?' for _ in chunk)}) ORDER BY t.sent_at"""
+            for r in db.execute(q, chunk):
+                out.setdefault(r["dup_of"], []).append(
+                    {"uid": r["uid"], "source_type": r["source_type"], "sender_key": r["sender_key"],
+                     "body": r["body"], "dup_state": r["state"]}
+                )
+        return out
 
     def get(self, uid: str) -> dict | None:
         with self.connect() as db:
@@ -367,7 +425,7 @@ class Store:
     def _row(r: sqlite3.Row) -> dict:
         d = dict(r)
         d["amount"] = round(d["amount_paise"] / 100, 2)
-        d["dup_state"] = d.get("dup_decision") or d.get("dup_state_phone")
+        d["dup_state"] = d.get("dup_decision") or d.get("dup_state_pc") or d.get("dup_state_phone")
         d["counted"] = bool(d.get("counted", 1))
         d["date_from_body"] = bool(d["date_from_body"])
         d["reviewed"] = bool(d["reviewed"])
@@ -409,6 +467,8 @@ class Store:
                        SUM(CASE WHEN category IS NULL AND {COUNTED} THEN 1 ELSE 0 END) AS uncategorized,
                        SUM(CASE WHEN category IS NOT NULL AND reviewed = 0 THEN 1 ELSE 0 END) AS unreviewed,
                        SUM(CASE WHEN dup_of IS NOT NULL AND dup_decision IS NULL THEN 1 ELSE 0 END) AS duplicates_to_check,
+                       SUM(CASE WHEN source_type = 'EMAIL' THEN 1 ELSE 0 END) AS from_email,
+                       SUM(CASE WHEN source_type = 'STATEMENT' THEN 1 ELSE 0 END) AS from_statements,
                        SUM(push_pending) AS push_pending
                    FROM txn t"""
             ).fetchone()
@@ -418,7 +478,10 @@ class Store:
 
     def pending_push(self) -> dict:
         with self.connect() as db:
-            rows = db.execute("SELECT uid, category, dup_decision FROM txn WHERE push_pending = 1").fetchall()
+            rows = db.execute(
+                "SELECT uid, category, dup_decision FROM txn WHERE push_pending = 1 AND source_type IN (?, ?, ?)",
+                PHONE_SOURCES,
+            ).fetchall()
             dirty = db.execute("SELECT value FROM meta WHERE key = 'categories_dirty'").fetchone()
         payload: dict = {
             "labels": [{"uid": r["uid"], "category": r["category"]} for r in rows],

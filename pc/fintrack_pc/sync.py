@@ -39,6 +39,11 @@ def push(store: Store, phone: PhoneClient) -> dict:
 
 
 def sync(store: Store, phone: PhoneClient) -> dict:
+    from .reconcile import reconcile
+
     result = pull(store, phone)
+    # New phone rows may be the same payments as already imported emails / statement lines.
+    # Link them before pushing, so labels carried over from an email reach the phone in this sync.
+    result["linked_on_pc"] = reconcile(store)["linked"]
     result.update(push(store, phone))
     return result

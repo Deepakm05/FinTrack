@@ -5,16 +5,20 @@ from __future__ import annotations
 import csv
 import io
 import json
+import tempfile
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .email_import import EmailError, import_email
 from .phone import PhoneError
+from .statement_import import StatementError, import_statement
 from .store import StoreError
 from . import sync as syncer
 
@@ -111,6 +115,32 @@ def build_console(app) -> Starlette:
         except PhoneError as e:
             return JSONResponse({"error": str(e)}, 502)
 
+    async def email_import(req: Request) -> Response:
+        body = await req.json()
+        cfg = app.config
+        try:
+            result = await run_in_threadpool(import_email, store, cfg.email_address, cfg.email_app_password,
+                                             int(body.get("days", 30)), cfg.email_host)
+        except EmailError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        return JSONResponse(result)
+
+    async def statement_import(req: Request) -> Response:
+        q = req.query_params
+        suffix = Path(q.get("filename", "statement.csv")).suffix.lower() or ".csv"
+        data = await req.body()
+        if not data:
+            raise StoreError("empty file")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / f"statement{suffix}"
+            path.write_bytes(data)
+            try:
+                result = await run_in_threadpool(import_statement, store, path, q.get("account") or "BANK",
+                                                 q.get("password") or None)
+            except StatementError as e:
+                return JSONResponse({"error": str(e)}, 400)
+        return JSONResponse(result)
+
     async def summary(req: Request) -> Response:
         q = req.query_params
         return JSONResponse(store.summary(q.get("start") or None, q.get("end") or None,
@@ -144,6 +174,8 @@ def build_console(app) -> Starlette:
             Route("/api/categories", categories, methods=["POST"]),
             Route("/api/sync", do_sync, methods=["POST"]),
             Route("/api/summary", summary),
+            Route("/api/email/import", email_import, methods=["POST"]),
+            Route("/api/statement/import", statement_import, methods=["POST"]),
             Route("/api/dataset/stats", dataset_stats),
             Route("/api/dataset/export", dataset_export),
         ],

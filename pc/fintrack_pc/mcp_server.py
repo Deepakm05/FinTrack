@@ -13,11 +13,15 @@ from .config import Config
 from .phone import PhoneClient, PhoneError
 from .store import Store, StoreError
 from . import sync as syncer
+from .email_import import EmailError, import_email as run_email_import
+from .statement_import import StatementError, import_statement as run_statement_import
 
 log = logging.getLogger("fintrack")
 
-INSTRUCTIONS = """FinTrack holds expenses parsed from the user's bank and delivery-app SMS and from GPay / PhonePe / Paytm
-notifications (source_type BANK, DELIVERY or UPI_APP; masked text, date, amount).
+INSTRUCTIONS = """FinTrack holds expenses from the user's bank and delivery-app SMS, GPay / PhonePe / Paytm notifications,
+receipt and bank-alert emails, and bank statements (source_type BANK, DELIVERY, UPI_APP, EMAIL, STATEMENT;
+masked text, date, amount). Each row's "linked" list holds the other records of the same payment: use them too
+when categorizing (e.g. a UPI debit to a personal UPI ID with a linked Rapido email is Transport).
 To categorize: call list_categories, then list_transactions(status="uncategorized"), then categorize with
 existing category names. Only add a category if nothing fits. Labels you set stay "unreviewed" until the user
 accepts or corrects them in the FinTrack console; never try to overwrite a manual label.
@@ -101,7 +105,7 @@ def build_server(app: App) -> MCPServer:
         end_date: Annotated[str | None, Field(description="YYYY-MM-DD (ignored when month is given)")] = None,
         status: Literal["uncategorized", "unreviewed", "all"] = "uncategorized",
         direction: Literal["DEBIT", "CREDIT", "ALL"] = "DEBIT",
-        source: Literal["BANK", "DELIVERY", "UPI_APP", "ALL"] = "ALL",
+        source: Literal["BANK", "DELIVERY", "UPI_APP", "EMAIL", "STATEMENT", "ALL"] = "ALL",
         include_duplicates: bool = False,
         limit: Annotated[int, Field(ge=1, le=500)] = 100,
         sync_first: bool = True,
@@ -115,7 +119,7 @@ def build_server(app: App) -> MCPServer:
             include_duplicates=include_duplicates, limit=limit,
         )
         keep = ("uid", "txn_date", "sent_time", "amount", "direction", "source_type", "sender_key", "body",
-                "category", "label_source", "reviewed", "dup_of", "dup_state")
+                "category", "label_source", "reviewed", "dup_of", "dup_state", "linked")
         return {
             "total_matching": total,
             "returned": len(rows),
@@ -151,6 +155,27 @@ def build_server(app: App) -> MCPServer:
             result = app.phone.import_inbox(days)
             return result | syncer.sync(app.store, app.phone)
         except PhoneError as e:
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def import_email(days: Annotated[int, Field(ge=1, le=365)] = 30) -> dict:
+        """Read order / ride receipts and bank alert emails from Gmail for the last N days and link duplicates."""
+        try:
+            return run_email_import(app.store, app.config.email_address, app.config.email_app_password, days,
+                                    host=app.config.email_host)
+        except EmailError as e:
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def import_statement(
+        path: Annotated[str, Field(description="Full path to the statement file on this PC (CSV, XLSX, XLS or PDF)")],
+        account: Annotated[str, Field(description="Short account name, e.g. HDFC or SBI")],
+        password: Annotated[str | None, Field(description="PDF password, if the statement has one")] = None,
+    ) -> dict:
+        """Import a bank statement: lines already tracked are linked as duplicates, the rest are added as missed payments."""
+        try:
+            return run_statement_import(app.store, path, account, password)
+        except (StatementError, OSError) as e:
             return {"error": str(e)}
 
     @mcp.prompt()

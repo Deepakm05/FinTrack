@@ -17,6 +17,9 @@ class Config:
     phone_url: str = "http://127.0.0.1:8765"
     token: str = ""
     console_port: int = 8800
+    email_address: str = ""
+    email_app_password: str = ""
+    email_host: str = "imap.gmail.com"
 
     @property
     def db_path(self) -> Path:
@@ -29,6 +32,7 @@ class Config:
         cfg = cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
         cfg.phone_url = os.environ.get("FINTRACK_PHONE_URL", cfg.phone_url)
         cfg.token = os.environ.get("FINTRACK_TOKEN", cfg.token)
+        cfg.email_app_password = os.environ.get("FINTRACK_EMAIL_APP_PASSWORD", cfg.email_app_password)
         return cfg
 
     def save(self) -> Path:
@@ -36,7 +40,7 @@ class Config:
         path = home_dir() / "config.json"
         path.write_text(json.dumps(asdict(self), indent=2))
         try:
-            path.chmod(0o600)  # the token grants access to your SMS data
+            path.chmod(0o600)  # the token and email app password grant access to your data
         except OSError:
             pass
         return path

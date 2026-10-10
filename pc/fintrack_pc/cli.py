@@ -1,4 +1,4 @@
-"""Command line: fintrack setup | status | sync | console | mcp | export."""
+"""Command line: fintrack setup | email-setup | status | sync | email | statement | console | mcp | export."""
 
 from __future__ import annotations
 
@@ -9,7 +9,11 @@ import sys
 import webbrowser
 from pathlib import Path
 
+import getpass
+
 from .config import Config
+from .email_import import EmailError, import_email
+from .statement_import import StatementError, import_statement
 from .console import serve, to_csv
 from .mcp_server import App, build_server
 from .phone import PhoneClient, PhoneError
@@ -28,6 +32,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--phone-url", required=True, help="e.g. http://192.168.1.5:8765 or http://127.0.0.1:8765 for USB")
     s.add_argument("--token", required=True, help="access token shown in the phone app")
     s.add_argument("--console-port", type=int, default=8800)
+    es = sub.add_parser("email-setup", help="save your Gmail address (the app password is asked for, not echoed)")
+    es.add_argument("--address", required=True, help="you@gmail.com")
+    es.add_argument("--host", default="imap.gmail.com")
+    em = sub.add_parser("email", help="fetch receipt and bank alert emails")
+    em.add_argument("--days", type=int, default=30)
+    st = sub.add_parser("statement", help="import a bank statement (CSV, XLSX, XLS, PDF)")
+    st.add_argument("file", type=Path)
+    st.add_argument("--account", required=True, help="short account name, e.g. HDFC")
+    st.add_argument("--password", help="PDF password, if any")
     sub.add_parser("status", help="check the phone connection and show counts")
     sub.add_parser("sync", help="pull from the phone and push labels back")
     c = sub.add_parser("console", help="open the web console")
@@ -51,7 +64,32 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved, but could not reach the phone yet: {err}")
         return 0
 
+    if args.cmd == "email-setup":
+        cfg = Config.load()
+        cfg.email_address = args.address
+        cfg.email_host = args.host
+        cfg.email_app_password = getpass.getpass("Gmail app password (from myaccount.google.com/apppasswords): ").replace(" ", "")
+        print(f"Saved {cfg.save()}")
+        return 0
+
     app = App()
+
+    if args.cmd == "email":
+        try:
+            print(json.dumps(import_email(app.store, app.config.email_address, app.config.email_app_password,
+                                          args.days, host=app.config.email_host), indent=2))
+        except EmailError as err:
+            print(err, file=sys.stderr)
+            return 1
+        return 0
+
+    if args.cmd == "statement":
+        try:
+            print(json.dumps(import_statement(app.store, args.file, args.account, args.password), indent=2))
+        except (StatementError, OSError) as err:
+            print(err, file=sys.stderr)
+            return 1
+        return 0
 
     if args.cmd == "status":
         try:

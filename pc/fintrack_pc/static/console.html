@@ -56,6 +56,9 @@
 <header>
   <h1>FinTrack</h1>
   <span class="counts" id="counts">Loading…</span>
+  <button class="btn" id="emailBtn">Fetch email</button>
+  <button class="btn" id="stmtBtn">Import statement</button>
+  <input type="file" id="stmtFile" accept=".csv,.xlsx,.xls,.pdf" hidden>
   <button class="btn primary" id="syncBtn">Sync with phone</button>
 </header>
 <nav id="tabs">
@@ -70,7 +73,7 @@
 
 <script>
 const state = { tab: "txns", categories: [], month: new Date().toISOString().slice(0, 7), status: "all", q: "", category: "", source: "" };
-const SOURCES = { BANK: "bank SMS", DELIVERY: "delivery app SMS", UPI_APP: "UPI app notification" };
+const SOURCES = { BANK: "bank SMS", DELIVERY: "delivery app SMS", UPI_APP: "UPI app notification", EMAIL: "email", STATEMENT: "bank statement" };
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const inr = n => "₹" + Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -90,7 +93,7 @@ async function loadOverview() {
   const o = await api("/api/overview");
   state.categories = o.categories.map(c => c.name);
   const c = o.counts;
-  $("#counts").textContent = `${c.total} transactions · ${c.uncategorized} uncategorized · ${c.unreviewed} to review · ` +
+  $("#counts").textContent = `${c.total} records (${c.from_email} email, ${c.from_statements} statement) · ${c.uncategorized} uncategorized · ${c.unreviewed} to review · ` +
     `${c.duplicates_to_check} duplicates to check · ${c.push_pending} changes not on phone yet · last sync ${fmtTime(o.last_pull_at)}`;
   return o;
 }
@@ -109,15 +112,22 @@ function labelChips(r) {
   return chips.join("");
 }
 
+function linkedInfo(r) {
+  const out = [];
+  if (r.dup_of && r.main_sender) out.push(`<div class="body">↳ same payment as <b>${esc(r.main_sender)}</b> (${esc(SOURCES[r.main_source] || r.main_source)}): ${esc((r.main_body || "").slice(0, 140))}</div>`);
+  (r.linked || []).forEach(l => out.push(`<div class="body">＋ ${esc(SOURCES[l.source_type] || l.source_type)} · <b>${esc(l.sender_key)}</b>: ${esc((l.body || "").slice(0, 140))}</div>`));
+  return out.join("");
+}
+
 function txnTable(rows, { checkboxes = false, extra = () => "" } = {}) {
   if (!rows.length) return `<div class="card muted">Nothing here.</div>`;
   return `<div class="table-wrap"><table><thead><tr>${checkboxes ? `<th><input type="checkbox" id="all"></th>` : ""}
-    <th>Date</th><th>Amount</th><th>Sender / SMS (masked)</th><th>Category</th><th></th></tr></thead><tbody>` +
+    <th>Date</th><th>Amount</th><th>Sender / text (masked)</th><th>Category</th><th></th></tr></thead><tbody>` +
     rows.map(r => `<tr class="${r.counted ? "" : "dim"}">
       ${checkboxes ? `<td><input type="checkbox" class="pick" value="${esc(r.uid)}"></td>` : ""}
       <td>${esc(r.txn_date)}<div class="muted" style="font-size:12px">${esc(r.sent_time.slice(11))}</div></td>
       <td class="amt ${r.direction === "DEBIT" ? "debit" : "credit"}">${r.direction === "DEBIT" ? "−" : "+"}${inr(r.amount)}</td>
-      <td><b>${esc(r.sender_key)}</b><div class="body">${esc(r.body)}</div>${labelChips(r)}</td>
+      <td><b>${esc(r.sender_key)}</b><div class="body">${esc(r.body)}</div>${labelChips(r)}${linkedInfo(r)}</td>
       <td>${categorySelect(r.category, r.uid)}</td>
       <td>${extra(r)}</td></tr>`).join("") + `</tbody></table></div>`;
 }
@@ -227,6 +237,26 @@ $("#tabs").addEventListener("click", e => {
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
   state.tab = b.dataset.tab; render();
 });
+$("#emailBtn").onclick = async () => {
+  const days = prompt("Fetch receipt and bank emails from the last how many days?", "30"); if (!days) return;
+  const b = $("#emailBtn"); b.disabled = true; b.textContent = "Fetching…";
+  try { const r = await api("/api/email/import", { days: Number(days) }); toast(`Checked ${r.emails_checked} emails, added ${r.transactions_added}, linked ${r.linked} duplicates`); await render(); }
+  catch (e) { toast(e.message); }
+  finally { b.disabled = false; b.textContent = "Fetch email"; }
+};
+$("#stmtBtn").onclick = () => $("#stmtFile").click();
+$("#stmtFile").onchange = async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  const account = prompt("Which account is this statement for? (e.g. HDFC, SBI)", "HDFC"); if (!account) return;
+  const password = file.name.toLowerCase().endsWith(".pdf") ? (prompt("PDF password (leave empty if none)", "") || "") : "";
+  const params = new URLSearchParams({ filename: file.name, account, password });
+  try {
+    const res = await fetch("/api/statement/import?" + params, { method: "POST", headers: { "X-FinTrack": "1" }, body: file });
+    const r = await res.json(); if (!res.ok || r.error) throw new Error(r.error || res.statusText);
+    toast(`${r.lines_in_file} lines (${r.first_date} → ${r.last_date}): ${r.already_tracked} already tracked, ${r.missed_before} were missing and are now added`);
+    await render();
+  } catch (err) { toast(err.message); }
+};
 $("#syncBtn").onclick = async () => {
   const b = $("#syncBtn"); b.disabled = true; b.textContent = "Syncing…";
   try { const r = await api("/api/sync", {}); toast(`Pulled ${r.pulled}, pushed ${r.pushed_labels} labels`); await render(); }
