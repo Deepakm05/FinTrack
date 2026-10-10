@@ -100,4 +100,14 @@ class NotificationParserTest {
         assertNull(parse("com.ubercab", "Trip cancelled", "Your trip for ₹180 was cancelled"))
         assertNull(parse("in.amazon.mShop.android.shopping", "Big Billion Days", "Deals from ₹99. Shop now"))
     }
+
+    @Test fun rideEndNotifications() {
+        val rapido = parse("com.rapido.passenger", "Ride completed", "Pay ₹103 to your captain")!!
+        assertEquals(Direction.DEBIT, rapido.direction)
+        assertEquals(10300L, rapido.amountPaise)
+        assertEquals(24532L, parse("com.ubercab", "Thanks for riding with Uber", "Your trip total: ₹245.32")!!.amountPaise)
+        assertEquals(18000L, parse("com.olacabs.customer", "You have reached your destination", "Amount payable ₹180")!!.amountPaise)
+        // Not a ride app: "Pay ₹349" from Swiggy is a payment request, not a payment.
+        assertNull(parse("in.swiggy.android", "Complete your order", "Pay ₹349 to place your order"))
+    }
 }

@@ -68,6 +68,14 @@ object NotificationParser {
         """(?<![a-z])(paid|you paid|payment of|payment (?:successful|done|received|completed|confirmed)|charged|""" +
             """debited|amount paid|total paid|trip fare|ride fare|fare|order total|bill total)(?![a-z])"""
     )
+    /** Ride apps also report the amount at the end of a trip, often before you pay the captain. */
+    private val RIDE_DONE = Regex(
+        """(?<![a-z])(ride completed|trip completed|ride ended|trip ended|thanks for riding|thank you for riding|""" +
+            """reached your destination|you have reached|dropped|pay (?:₹|rs)|amount to (?:be )?paid|amount payable|""" +
+            """total fare|trip total|ride total)(?![a-z])"""
+    )
+    private val RIDE_APPS = setOf("UBER", "RAPIDO", "OLACAB")
+
     private val MERCHANT_SKIP = Regex("""(?<![a-z])(cancelled|canceled|estimate|estimated|fare estimate)(?![a-z])""")
     private val MERCHANT_REFUND = Regex("""(?<![a-z])(refund|refunded|credited back|reversed)(?![a-z])""")
 
@@ -90,6 +98,8 @@ object NotificationParser {
 
         val direction = when (app.type) {
             SourceType.MERCHANT_APP -> merchantDirection(lower)
+                ?: if (app.senderKey in RIDE_APPS && RIDE_DONE.containsMatchIn(lower) &&
+                    !MERCHANT_SKIP.containsMatchIn(lower)) Direction.DEBIT else null
             else -> direction(lower)
         } ?: return null
         val amountPaise = SmsParser.extractAmountPaise(combined) ?: return null

@@ -11,30 +11,7 @@ import com.fintrack.core.ParsedSms
 import com.fintrack.core.SourceType
 import java.security.MessageDigest
 import java.util.UUID
-
-/** One stored transaction, as shown in the app and sent to the PC. */
-data class TxnRow(
-    val uid: String,
-    val sender: String,
-    val senderKey: String,
-    val body: String,
-    val sentAt: Long,
-    val receivedAt: Long,
-    val txnDate: String,
-    val dateFromBody: Boolean,
-    val amountPaise: Long,
-    val direction: Direction,
-    val sourceType: SourceType,
-    val dupOf: String?,
-    val dupScore: Double?,
-    /** auto / possible (from the phone) or confirmed / rejected (decided on the PC). */
-    val dupState: String?,
-    val category: String?,
-    val version: Long,
-) {
-    /** Linked duplicates are left out of totals unless the PC rejected the link. */
-    val countsInTotals: Boolean get() = dupOf == null || dupState == "possible" || dupState == "rejected"
-}
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Local SQLite store. Every change the PC needs to know about bumps the row's [TxnRow.version],
@@ -121,10 +98,11 @@ class TransactionStore private constructor(context: Context) :
                 )
             }
             db.setTransactionSuccessful()
-            return true
         } finally {
             db.endTransaction()
         }
+        notifyChanged()
+        return true
     }
 
     /**
@@ -193,8 +171,18 @@ class TransactionStore private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
+        notifyChanged()
         return applied
     }
+
+    private val listeners = CopyOnWriteArraySet<() -> Unit>()
+
+    /** Called (on a background thread) after a new SMS / notification is stored or the PC pushes labels. */
+    fun addListener(listener: () -> Unit) = listeners.add(listener)
+
+    fun removeListener(listener: () -> Unit) = listeners.remove(listener)
+
+    private fun notifyChanged() = listeners.forEach { it() }
 
     private fun query(sql: String, vararg args: String): List<TxnRow> =
         readableDatabase.rawQuery(sql, args).use { c -> buildList { while (c.moveToNext()) add(c.toRow()) } }
