@@ -67,26 +67,47 @@ private val DarkColors = darkColorScheme(
     errorContainer = Color(0xFF93000A),
 )
 
-/** Colors that aren't part of the Material scheme: money in / out and the category palette. */
+/**
+ * Colors that aren't part of the Material scheme: money in / out and category colors.
+ * The default categories each get their own color; any category you add gets one from [palette].
+ */
 @Immutable
-data class MoneyColors(val credit: Color, val debit: Color, val categories: List<Color>)
+data class MoneyColors(
+    val credit: Color,
+    val debit: Color,
+    val named: Map<String, Color>,
+    val palette: List<Color>,
+    val uncategorized: Color,
+)
+
+private fun named(vararg colors: Long) = DEFAULT_CATEGORY_ORDER.zip(colors.map { Color(it) }).toMap()
+
+/** Same order as the PC's default categories. */
+private val DEFAULT_CATEGORY_ORDER = listOf(
+    "Food & Dining", "Groceries", "Shopping", "Transport", "Fuel", "Bills & Utilities", "Rent",
+    "Entertainment", "Health", "Travel", "Education", "Transfers", "Investments", "Other",
+)
 
 private val LightMoney = MoneyColors(
     credit = Color(0xFF1B7A3A),
     debit = Color(0xFF181D19),
-    categories = listOf(
-        Color(0xFF2E7D4F), Color(0xFF3A6EA5), Color(0xFFB5651D), Color(0xFF8E4B9E),
-        Color(0xFFC0392B), Color(0xFF00838F), Color(0xFF7A7A2E), Color(0xFF6D6D6D),
+    named = named(
+        0xFFD9480F, 0xFF2B8A3E, 0xFFAE3EC9, 0xFF1971C2, 0xFFE67700, 0xFF0C8599, 0xFF5F3DC4,
+        0xFFC2255C, 0xFFE03131, 0xFF1098AD, 0xFF6741D9, 0xFF495057, 0xFF2F9E44, 0xFF868E96,
     ),
+    palette = listOf(Color(0xFF3B5BDB), Color(0xFFF08C00), Color(0xFF099268), Color(0xFFA61E4D), Color(0xFF5C940D)),
+    uncategorized = Color(0xFF9AA19A),
 )
 
 private val DarkMoney = MoneyColors(
     credit = Color(0xFF8AD79F),
     debit = Color(0xFFDFE4DD),
-    categories = listOf(
-        Color(0xFF7DCB9A), Color(0xFF8AB4E8), Color(0xFFF0A867), Color(0xFFD29BE0),
-        Color(0xFFF08A7E), Color(0xFF6FD3DC), Color(0xFFCACA7A), Color(0xFFA8A8A8),
+    named = named(
+        0xFFFF8A5B, 0xFF69DB7C, 0xFFE599F7, 0xFF74C0FC, 0xFFFFC078, 0xFF66D9E8, 0xFFB197FC,
+        0xFFF783AC, 0xFFFF8787, 0xFF3BC9DB, 0xFF9775FA, 0xFFADB5BD, 0xFF8CE99A, 0xFFCED4DA,
     ),
+    palette = listOf(Color(0xFF91A7FF), Color(0xFFFFD43B), Color(0xFF63E6BE), Color(0xFFFAA2C1), Color(0xFFC0EB75)),
+    uncategorized = Color(0xFF7D857D),
 )
 
 val LocalMoneyColors = staticCompositionLocalOf { LightMoney }

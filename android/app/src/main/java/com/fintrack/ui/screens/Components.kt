@@ -50,9 +50,10 @@ fun signedRupees(paise: Long, direction: Direction): String =
 
 @Composable
 fun categoryColor(name: String?): Color {
-    val palette = LocalMoneyColors.current.categories
-    if (name == null || name == UNCATEGORIZED) return palette.last()
-    return palette[(name.hashCode() and Int.MAX_VALUE) % (palette.size - 1)]
+    val money = LocalMoneyColors.current
+    if (name == null || name == UNCATEGORIZED) return money.uncategorized
+    money.named.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.let { return it.value }
+    return money.palette[(name.lowercase().hashCode() and Int.MAX_VALUE) % money.palette.size]
 }
 
 @Composable
@@ -115,13 +116,16 @@ fun TxnListRow(item: TxnItem, onClick: () -> Unit) {
             Text(item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val linked = if (item.linked.isNotEmpty()) " · +${item.linked.size} linked" else ""
-                Text("${item.sourceLabel} · ${item.time}$linked", style = MaterialTheme.typography.bodySmall,
+                Text("${item.sourceLabel} · ${item.time}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CategoryTag(item.category)
+                if (item.linked.isNotEmpty()) {
+                    Pill("+${item.linked.size} linked", MaterialTheme.colorScheme.surfaceContainerHigh,
+                        MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (item.dupState == "possible") {
                     Pill("Possible duplicate", MaterialTheme.colorScheme.tertiaryContainer,
                         MaterialTheme.colorScheme.onTertiaryContainer)

@@ -83,7 +83,7 @@ fun ActivityScreen(state: AppUiState, actions: AppActions, modifier: Modifier = 
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search payee, category or message") },
+                placeholder = { Text("Search payee or message", maxLines = 1) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Clear, "Clear") }
