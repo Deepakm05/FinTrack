@@ -32,4 +32,13 @@ class TitleExtractorTest {
         assertEquals("Google Pay", TitleExtractor.sourceLabel(SourceType.UPI_APP, "GPAY"))
         assertEquals("Uber app", TitleExtractor.sourceLabel(SourceType.MERCHANT_APP, "UBER"))
     }
+
+    @Test fun realWorldTitles() {
+        assertEquals("Varish", t(SourceType.BANK, "PNBSMS", "A/c XXXX debited INR 80.00 Dt 20-05-26 21:25:48 to VARISH thru UPI:XXXX.Bal INR 165.00"))
+        assertEquals("Abhishek Panwa", t(SourceType.BANK, "PNBSMS", "A/c XXXX credited for INR 593.00 on 30-05-26 19:01:10 by ABHISHEK PANWA thru UPI.AvlBal INR 856.50"))
+        assertEquals("Ramesh Stores", t(SourceType.BANK, "ICICIT", "ICICI Bank Acct XXXX debited for Rs 98.10 on 02-Jun-26; RAMESH STORES credited. UPI:XXXX"))
+        assertEquals("Ashish Mahendra", t(SourceType.BANK, "ICICIT", "Acct XXXX is credited with Rs 21000.00 on 04-May-26 from ASHISH MAHENDRA. UPI:XXXX-ICICI Bank."))
+        assertEquals("Ramesh Tea Stall", t(SourceType.BANK, "HDFCBK", "Sent Rs.40.00 From HDFC Bank A/C XXXX To RAMESH TEA STALL On 10/10/26 Ref XXXX Not You?"))
+        assertEquals("Mr Pradeep Kumar", t(SourceType.UPI_APP, "PHONEPE", "₹58 paid to Mr PRADEEP KUMAR via UPI on 06-Jun-26. UPI Ref No XXXX"))
+    }
 }

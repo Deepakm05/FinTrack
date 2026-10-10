@@ -10,9 +10,9 @@ object Masker {
     // Tokens mixing digits with mask characters: XX1234, ****1234, 1234XXXX5678, x1234.
     private val PARTLY_MASKED = Regex("""(?<![A-Za-z0-9])(?=[0-9Xx*#]*\d)(?=[0-9Xx*#]*[Xx*#])[0-9Xx*#]{3,}(?![A-Za-z0-9])""")
 
-    // Numbers right after an account / card keyword: "A/c no. 501004567890", "card ending 5678".
+    // Numbers right after an account / card keyword: "A/c no. 501004567890", "card ending 5678", "BLOCK DC 5678".
     private val AFTER_KEYWORD = Regex(
-        """(?i)((?<![a-z])(?:a/c|a/c\.|ac|acct|account|card|cc)(?:\s*(?:no\.?|number|num|ending(?:\s+(?:with|in))?|ends?(?:\s+(?:with|in))?))?\s*[:.#-]?\s*)(\d[\d -]*\d|\d)(?![\d])"""
+        """(?i)((?<![a-z])(?:a/c|a/c\.|ac|acct|account|card|cc|dc)(?:\s*(?:no\.?|number|num|ending(?:\s+(?:with|in))?|ends?(?:\s+(?:with|in))?))?\s*[:.#-]?\s*)(\d[\d -]*\d|\d)(?![\d])"""
     )
 
     // Any remaining long digit run: account numbers, phone numbers, reference numbers.

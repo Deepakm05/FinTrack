@@ -13,7 +13,7 @@ MASK = "XXXX"
 
 _PARTLY_MASKED = re.compile(r"(?<![A-Za-z0-9])(?=[0-9Xx*#]*\d)(?=[0-9Xx*#]*[Xx*#])[0-9Xx*#]{3,}(?![A-Za-z0-9])")
 _AFTER_KEYWORD = re.compile(
-    r"(?i)((?<![a-z])(?:a/c|a/c\.|ac|acct|account|card|cc)(?:\s*(?:no\.?|number|num|ending(?:\s+(?:with|in))?|"
+    r"(?i)((?<![a-z])(?:a/c|a/c\.|ac|acct|account|card|cc|dc)(?:\s*(?:no\.?|number|num|ending(?:\s+(?:with|in))?|"
     r"ends?(?:\s+(?:with|in))?))?\s*[:.#-]?\s*)(\d[\d -]*\d|\d)(?!\d)"
 )
 _LONG_DIGITS = re.compile(r"(?<!\d)\d{9,}(?!\d)")

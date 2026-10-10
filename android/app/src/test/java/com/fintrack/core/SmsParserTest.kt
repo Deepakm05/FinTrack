@@ -132,4 +132,63 @@ class SmsParserTest {
         assertTrue(p.maskedBody.contains("Rs 500"))
         assertTrue(p.maskedBody.contains("10-10-26"))
     }
+
+    // Real formats quoted in the docs of the open-source upi_sms_parser / bank_upi_sms_parser packages (pub.dev).
+    @Test fun realWorldSamples() {
+        val swiggy = SmsParser.parse("JM-SWIGGY", "Payment Confirmed! Your Swiggy Order #236190425176316 of Rs. 356.0 was successfully " +
+            "paid on 26/04/2026 at 10:38 PM. Txn ID: 260298464000257. Enjoy your order!", at(2026, 4, 26), zone)!!
+        assertEquals(SourceType.DELIVERY, swiggy.sourceType)
+        assertEquals(35600L, swiggy.amountPaise)
+        assertEquals(LocalDate.of(2026, 4, 26), swiggy.txnDate)
+
+        val sbi = SmsParser.parse("JK-SBIUPI-S", "Dear UPI user A/C X6299 debited by 356.00 on date 26Apr26 trf to Swiggy Refno 260298464000",
+            at(2026, 4, 26), zone)!!
+        assertEquals(35600L, sbi.amountPaise)
+        assertEquals(LocalDate.of(2026, 4, 26), sbi.txnDate)
+
+        val pnb = SmsParser.parse("VM-PNBSMS", "A/c X0298 debited INR 80.00 Dt 20-05-26 21:25:48 to VARISH thru UPI:650693182061.Bal INR 165.00 " +
+            "Not u?Fwd this SMS to 9264092640 to block UPI.-PNB", at(2026, 5, 20), zone)!!
+        assertEquals(8000L, pnb.amountPaise)
+        assertEquals(Direction.DEBIT, pnb.direction)
+        assertEquals(LocalDate.of(2026, 5, 20), pnb.txnDate)
+        assertFalse(pnb.maskedBody.contains("650693182061"))
+
+        val pnbCr = SmsParser.parse("VM-PNBSMS", "A/c X0298 credited for INR 593.00 on 30-05-26 19:01:10 by ABHISHEK PANWA thru UPI.AvlBal INR 856.50-PNB",
+            at(2026, 5, 30), zone)!!
+        assertEquals(Direction.CREDIT, pnbCr.direction)
+        assertEquals(59300L, pnbCr.amountPaise)
+
+        val icici = SmsParser.parse("AX-ICICIT", "ICICI Bank Acct XX280 debited for Rs 598.10 on 02-Jun-26; Dominos Pizza credited. UPI:207554339160. " +
+            "Call 18002662 for dispute.", at(2026, 6, 2), zone)!!
+        assertEquals(Direction.DEBIT, icici.direction)
+        assertEquals(59810L, icici.amountPaise)
+        assertEquals(LocalDate.of(2026, 6, 2), icici.txnDate)
+
+        val iciciCr = SmsParser.parse("AX-ICICIT", "Dear Customer, Acct XX280 is credited with Rs 21000.00 on 04-May-26 from ASHISH MAHENDRA. " +
+            "UPI:122599212796-ICICI Bank.", at(2026, 5, 4), zone)!!
+        assertEquals(Direction.CREDIT, iciciCr.direction)
+        assertEquals(2_100_000L, iciciCr.amountPaise)
+
+        val credit = SmsParser.parse("VM-HDFCBK", "Rs.1,372.00 credited to A/c XX1234 on 27-04-2026 17:13. Avl Bal: Rs.12,450", at(2026, 4, 27), zone)!!
+        assertEquals(137200L, credit.amountPaise)
+
+        // HDFC's multi-line UPI alert and card alert.
+        val hdfcUpi = SmsParser.parse("VM-HDFCBK-S", "Sent Rs.40.00\nFrom HDFC Bank A/C *1234\nTo RAMESH TEA STALL\nOn 10/10/26\nRef 628312345678\n" +
+            "Not You?\nCall 18002586161/SMS BLOCK UPI to 7308080808", at(2026, 10, 10), zone)!!
+        assertEquals(Direction.DEBIT, hdfcUpi.direction)
+        assertEquals(4000L, hdfcUpi.amountPaise)
+        assertFalse(hdfcUpi.maskedBody.contains("1234"))
+
+        val hdfcCard = SmsParser.parse("VM-HDFCBK", "Spent Rs.349 On HDFC Bank Card 5678 At SWIGGY On 2026-10-10:20:40:12 Bal Rs.45210 Not You? " +
+            "Call 18002586161/SMS BLOCK DC 5678 to 7308080808", at(2026, 10, 10), zone)!!
+        assertEquals(34900L, hdfcCard.amountPaise)
+        assertFalse(hdfcCard.maskedBody.contains("5678"))
+
+        // Rejected: OTP, balance alert, personal message.
+        assertNull(SmsParser.parse("JK-SBIUPI-S", "Your OTP for UPI transaction is 123456. Do not share. Amount: Rs.500", at(2026, 4, 26), zone))
+        assertNull(SmsParser.parse("VM-SBIINB", "Your account balance is Rs.500. Maintain minimum balance.", at(2026, 4, 26), zone))
+        assertNull(SmsParser.parse("+919876543210", "Hey, I paid you ₹500 for dinner, sent via phonepe!", at(2026, 4, 26), zone))
+    }
+
+    private fun at(y: Int, m: Int, d: Int) = ZonedDateTime.of(y, m, d, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
 }

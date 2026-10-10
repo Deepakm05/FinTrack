@@ -21,13 +21,15 @@ object TitleExtractor {
     // Payee / payer phrases, most specific first. Group 1 is the name.
     private val NAME_PATTERNS = listOf(
         Regex("""(?i)^(.{2,40}?) (?:paid|sent) you"""),
-        Regex("""(?i)(?:paid|sent|payment) to ([A-Za-z][^.,|—\n]{1,40}?)(?=\s+(?:on|via|from|using|for|ref|upi)\b|[.,|—\n]|$)"""),
-        Regex("""(?i)received .{0,20}? from ([A-Za-z][^.,|—\n]{1,40}?)(?=\s+(?:on|via|ref|upi)\b|[.,|—\n]|$)"""),
+        Regex("""(?i)(?:paid|sent|payment) to ([A-Za-z][^.,|—\n]{1,40}?)(?=\s+(?:on|via|from|using|for|ref|upi|thru|through)\b|[.,|—\n]|$)"""),
+        Regex("""(?i)received .{0,20}? from ([A-Za-z][^.,|—\n]{1,40}?)(?=\s+(?:on|via|ref|upi|thru|through)\b|[.,|—\n]|$)"""),
         Regex("""(?i)\btrf to ([A-Za-z][^.,|—\n]{1,40}?)(?=\s+(?:ref|refno|on)\b|[.,|—\n]|$)"""),
         Regex("""(?i)\bat ([A-Za-z][A-Za-z0-9&'. -]{1,40}?)(?=\s+(?:on|via|for|ref)\b|[.,|—\n]|$)"""),
         Regex("""(?i)\bvpa ([A-Za-z0-9._-]+)@"""),
-        Regex("""(?i)\bto ([A-Za-z][A-Za-z0-9&'. -]{1,40}?)(?=\s+(?:on|via|ref|upi)\b|[.,|—\n]|$)"""),
-        Regex("""(?i)\b(?:by|from) (?:neft|imps|rtgs|upi)?[- ]?(?:cr-?)?([A-Za-z][A-Za-z0-9&'. -]{1,40}?)(?=\s+(?:on|ref)\b|[.,|—\n]|$)"""),
+        // ICICI: "debited for Rs 98.10 on 02-Jun-26; RAMESH STORES credited."
+        Regex("""(?i);\s*([A-Za-z][A-Za-z0-9&'. -]{1,40}?) credited"""),
+        Regex("""(?i)\bto ([A-Za-z][A-Za-z0-9&'. -]{1,40}?)(?=\s+(?:on|via|ref|upi|thru|through|dt)\b|[.,|—\n:]|$)"""),
+        Regex("""(?i)\b(?:by|from) (?:neft|imps|rtgs|upi)?[- ]?(?:cr-?)?([A-Za-z][A-Za-z0-9&'. -]{1,40}?)(?=\s+(?:on|ref|thru|through)\b|[.,|—\n]|$)"""),
     )
 
     private val NOT_A_NAME = Regex("""(?i)^(your|you|a/c|ac|account|card|xxxx|the|bank|beneficiary|upi|vpa|merchant|rs|inr)\b""")
@@ -51,11 +53,14 @@ object TitleExtractor {
         }
     }
 
-    /** "RAMESH TEA STALL" / "paytmqr" -> "Ramesh Tea Stall" / "Paytmqr"; mixed-case names are kept. */
+    /** "RAMESH TEA STALL" / "Mr PRADEEP KUMAR" / "paytmqr" -> "Ramesh Tea Stall" / "Mr Pradeep Kumar" / "Paytmqr". */
     fun pretty(raw: String): String {
         val s = raw.replace(Regex("""\s+"""), " ").trim().take(28)
-        if (s.any { it.isLowerCase() } && s.any { it.isUpperCase() }) return s
-        return s.lowercase().split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
+        return s.split(" ").joinToString(" ") { w ->
+            val shouting = w.length > 1 && w.none { it.isLowerCase() }
+            val allLower = w.none { it.isUpperCase() }
+            if (shouting || allLower) w.lowercase().replaceFirstChar { it.uppercase() } else w
+        }
     }
 
     fun sourceLabel(sourceType: SourceType, senderKey: String): String = when (sourceType) {
