@@ -1,0 +1,52 @@
+name: Android APK
+
+on:
+  push:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  pull_request:
+    paths: ["android/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Optional but recommended: a stable signing key so new APKs install over the old one
+      # without losing data. Add the four FINTRACK_* secrets (see README) to enable it.
+      - name: Decode signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.FINTRACK_KEYSTORE_B64 }}
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/fintrack.jks"
+          echo "FINTRACK_KEYSTORE=$RUNNER_TEMP/fintrack.jks" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build APK
+        env:
+          FINTRACK_KEYSTORE_PASSWORD: ${{ secrets.FINTRACK_KEYSTORE_PASSWORD }}
+          FINTRACK_KEY_ALIAS: ${{ secrets.FINTRACK_KEY_ALIAS }}
+          FINTRACK_KEY_PASSWORD: ${{ secrets.FINTRACK_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fintrack-apk
+          path: android/app/build/outputs/apk/release/*.apk
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: android/app/build/reports/tests/

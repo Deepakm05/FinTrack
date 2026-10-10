@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FinTrack Console</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --panel: #ffffff; --text: #111827; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #1b7a3a; --accent-text: #ffffff; --debit: #b42318; --credit: #1b7a3a;
+    --warn-bg: #fff7e6; --warn: #8a5a00; --chip: #eef2f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111315; --panel: #1a1d20; --text: #e7e9ec; --muted: #9aa3ad; --line: #2b3036;
+      --accent: #3fae63; --accent-text: #0b1a10; --debit: #f2877c; --credit: #6fd08f;
+      --warn-bg: #3a2e12; --warn: #f3c969; --chip: #252a30;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 18px; margin: 0 12px 0 0; }
+  .counts { color: var(--muted); flex: 1; }
+  nav { display: flex; gap: 4px; padding: 8px 16px; flex-wrap: wrap; }
+  nav button { background: none; border: 0; padding: 8px 12px; border-radius: 6px; color: var(--muted); cursor: pointer; font: inherit; }
+  nav button.on { background: var(--panel); color: var(--text); box-shadow: 0 0 0 1px var(--line); font-weight: 600; }
+  main { padding: 0 16px 48px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; }
+  input, select, button.btn { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
+  button.btn { cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.amt { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+  .debit { color: var(--debit); } .credit { color: var(--credit); }
+  .body { color: var(--muted); font-size: 12px; max-width: 520px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; color: var(--muted); margin: 2px 4px 0 0; }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  tr.dim td { opacity: .55; }
+  .muted { color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .stat b { display: block; font-size: 22px; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; display: none; max-width: calc(100% - 32px); }
+  .table-wrap { overflow-x: auto; }
+  @media (max-width: 700px) {
+    .body { max-width: 240px; }
+    .counts { order: 3; flex-basis: 100%; font-size: 12px; }
+    header h1 { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>FinTrack</h1>
+  <span class="counts" id="counts">Loading…</span>
+  <button class="btn primary" id="syncBtn">Sync with phone</button>
+</header>
+<nav id="tabs">
+  <button data-tab="txns" class="on">Transactions</button>
+  <button data-tab="review">Review Claude's labels</button>
+  <button data-tab="dups">Duplicates</button>
+  <button data-tab="cats">Categories</button>
+  <button data-tab="data">Dataset</button>
+</nav>
+<main id="main"></main>
+<div id="toast"></div>
+
+<script>
+const state = { tab: "txns", categories: [], month: new Date().toISOString().slice(0, 7), status: "all", q: "", category: "" };
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const inr = n => "₹" + Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-FinTrack": "1" }, body: JSON.stringify(body) };
+  const res = await fetch(path, opts);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+  return data;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
+function monthRange(m) { if (!m) return ["", ""]; const [y, mo] = m.split("-").map(Number); const last = new Date(y, mo, 0).getDate(); return [`${m}-01`, `${m}-${String(last).padStart(2, "0")}`]; }
+function fmtTime(ms) { return ms ? new Date(Number(ms)).toLocaleString() : "never"; }
+
+async function loadOverview() {
+  const o = await api("/api/overview");
+  state.categories = o.categories.map(c => c.name);
+  const c = o.counts;
+  $("#counts").textContent = `${c.total} transactions · ${c.uncategorized} uncategorized · ${c.unreviewed} to review · ` +
+    `${c.duplicates_to_check} duplicates to check · ${c.push_pending} changes not on phone yet · last sync ${fmtTime(o.last_pull_at)}`;
+  return o;
+}
+
+function categorySelect(current, uid) {
+  return `<select data-uid="${esc(uid)}" class="catSel"><option value="">— none —</option>` +
+    state.categories.map(n => `<option ${n === current ? "selected" : ""}>${esc(n)}</option>`).join("") + `</select>`;
+}
+
+function labelChips(r) {
+  const chips = [];
+  if (r.label_source && r.label_source !== "manual") chips.push(`<span class="chip ${r.reviewed ? "" : "warn"}">${esc(r.label_source)}${r.reviewed ? " ✓" : " · unreviewed"}</span>`);
+  if (r.label_source === "manual") chips.push(`<span class="chip">manual</span>`);
+  if (r.dup_of) chips.push(`<span class="chip ${r.dup_state === "possible" ? "warn" : ""}">duplicate: ${esc(r.dup_state)}</span>`);
+  if (r.source_type === "DELIVERY") chips.push(`<span class="chip">delivery app</span>`);
+  return chips.join("");
+}
+
+function txnTable(rows, { checkboxes = false, extra = () => "" } = {}) {
+  if (!rows.length) return `<div class="card muted">Nothing here.</div>`;
+  return `<div class="table-wrap"><table><thead><tr>${checkboxes ? `<th><input type="checkbox" id="all"></th>` : ""}
+    <th>Date</th><th>Amount</th><th>Sender / SMS (masked)</th><th>Category</th><th></th></tr></thead><tbody>` +
+    rows.map(r => `<tr class="${r.counted ? "" : "dim"}">
+      ${checkboxes ? `<td><input type="checkbox" class="pick" value="${esc(r.uid)}"></td>` : ""}
+      <td>${esc(r.txn_date)}<div class="muted" style="font-size:12px">${esc(r.sent_time.slice(11))}</div></td>
+      <td class="amt ${r.direction === "DEBIT" ? "debit" : "credit"}">${r.direction === "DEBIT" ? "−" : "+"}${inr(r.amount)}</td>
+      <td><b>${esc(r.sender_key)}</b><div class="body">${esc(r.body)}</div>${labelChips(r)}</td>
+      <td>${categorySelect(r.category, r.uid)}</td>
+      <td>${extra(r)}</td></tr>`).join("") + `</tbody></table></div>`;
+}
+
+function wireCategorySelects(root) {
+  root.querySelectorAll(".catSel").forEach(sel => sel.addEventListener("change", async () => {
+    try { await api("/api/label", { uids: [sel.dataset.uid], category: sel.value || null }); toast("Saved"); await render(); }
+    catch (e) { toast(e.message); }
+  }));
+}
+
+function picked() { return [...document.querySelectorAll(".pick:checked")].map(c => c.value); }
+function wireCheckAll() { const all = $("#all"); if (all) all.addEventListener("change", () => document.querySelectorAll(".pick").forEach(c => c.checked = all.checked)); }
+
+async function renderTxns(main) {
+  const [start, end] = monthRange(state.month);
+  const params = new URLSearchParams({ start, end, status: state.status, q: state.q, category: state.category });
+  const data = await api("/api/transactions?" + params);
+  main.innerHTML = `<div class="bar">
+      <input type="month" id="month" value="${esc(state.month)}">
+      <select id="status">${["all", "uncategorized", "unreviewed", "duplicates"].map(s => `<option ${s === state.status ? "selected" : ""}>${s}</option>`).join("")}</select>
+      <select id="catFilter"><option value="">all categories</option>${state.categories.map(n => `<option ${n === state.category ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+      <input id="q" placeholder="Search text / sender" value="${esc(state.q)}">
+      <span class="muted">${data.total} rows</span>
+      <span style="flex:1"></span>
+      <select id="bulkCat"><option value="">Set category for selected…</option>${state.categories.map(n => `<option>${esc(n)}</option>`).join("")}</select>
+    </div>` + txnTable(data.rows, { checkboxes: true });
+  $("#month").onchange = e => { state.month = e.target.value; render(); };
+  $("#status").onchange = e => { state.status = e.target.value; render(); };
+  $("#catFilter").onchange = e => { state.category = e.target.value; render(); };
+  $("#q").onchange = e => { state.q = e.target.value; render(); };
+  $("#bulkCat").onchange = async e => {
+    const uids = picked(); if (!uids.length) { toast("Select rows first"); e.target.value = ""; return; }
+    const r = await api("/api/label", { uids, category: e.target.value }); toast(`Updated ${r.updated}`); render();
+  };
+  wireCheckAll(); wireCategorySelects(main);
+}
+
+async function renderReview(main) {
+  const data = await api("/api/transactions?" + new URLSearchParams({ status: "unreviewed", limit: 500 }));
+  main.innerHTML = `<div class="card">Labels set by Claude stay out of the training dataset until you accept or change them.
+      Changing a label counts as a <b>correction</b> — the most useful kind of training example.</div>
+    <div class="bar"><button class="btn primary" id="acceptSel">Accept selected</button><span class="muted">${data.total} to review</span></div>` +
+    txnTable(data.rows, { checkboxes: true, extra: r => `<button class="btn acc" data-uid="${esc(r.uid)}">Accept</button>` });
+  $("#acceptSel").onclick = async () => { const uids = picked(); if (!uids.length) return toast("Select rows first"); const r = await api("/api/accept", { uids }); toast(`Accepted ${r.accepted}`); render(); };
+  main.querySelectorAll(".acc").forEach(b => b.onclick = async () => { await api("/api/accept", { uids: [b.dataset.uid] }); render(); });
+  wireCheckAll(); wireCategorySelects(main);
+}
+
+async function renderDups(main) {
+  const data = await api("/api/transactions?" + new URLSearchParams({ status: "duplicates", limit: 500 }));
+  main.innerHTML = `<div class="card">Each row is a delivery-app SMS linked to a bank SMS for the same purchase.
+      <b>auto</b> = strong match (not counted), <b>possible</b> = weak match (still counted until you confirm).</div>` +
+    txnTable(data.rows, { extra: r => `<button class="btn dup" data-uid="${esc(r.uid)}" data-d="confirmed">Same purchase</button>
+      <button class="btn dup" data-uid="${esc(r.uid)}" data-d="rejected">Different</button>` });
+  main.querySelectorAll(".dup").forEach(b => b.onclick = async () => { await api("/api/duplicate", { uid: b.dataset.uid, decision: b.dataset.d }); toast("Saved"); render(); });
+  wireCategorySelects(main);
+}
+
+async function renderCats(main) {
+  const o = await loadOverview();
+  main.innerHTML = `<div class="bar"><input id="newCat" placeholder="New category"><button class="btn primary" id="addCat">Add</button></div>
+    <div class="table-wrap"><table><thead><tr><th>Category</th><th>Transactions</th><th></th></tr></thead><tbody>` +
+    o.categories.map(c => `<tr><td>${esc(c.name)}</td><td>${c.transactions}</td><td>
+      <button class="btn ren" data-name="${esc(c.name)}">Rename / merge</button>
+      ${c.transactions ? "" : `<button class="btn del" data-name="${esc(c.name)}">Delete</button>`}</td></tr>`).join("") + `</tbody></table></div>`;
+  $("#addCat").onclick = async () => { try { await api("/api/categories", { action: "add", name: $("#newCat").value }); render(); } catch (e) { toast(e.message); } };
+  main.querySelectorAll(".ren").forEach(b => b.onclick = async () => {
+    const name = prompt(`Rename "${b.dataset.name}" to (an existing name merges them):`, b.dataset.name); if (!name) return;
+    const r = await api("/api/categories", { action: "rename", old: b.dataset.name, new: name });
+    toast(`${r.merged ? "Merged into" : "Renamed to"} ${r.category} (${r.transactions} transactions)`); render();
+  });
+  main.querySelectorAll(".del").forEach(b => b.onclick = async () => { await api("/api/categories", { action: "delete", name: b.dataset.name }); render(); });
+}
+
+async function renderData(main) {
+  const s = await api("/api/dataset/stats");
+  const [start, end] = monthRange(state.month);
+  const sum = await api("/api/summary?" + new URLSearchParams({ start, end }));
+  main.innerHTML = `<div class="grid">
+      <div class="card stat"><span class="muted">Training rows (reviewed)</span><b>${s.training_rows}</b></div>
+      <div class="card stat"><span class="muted">Claude labels accepted</span><b>${s.claude_labels_accepted}</b></div>
+      <div class="card stat"><span class="muted">Claude labels corrected</span><b>${s.claude_labels_corrected}</b></div>
+      <div class="card stat"><span class="muted">Spent in ${esc(state.month)}</span><b>${inr(sum.total)}</b></div>
+    </div>
+    <div class="bar"><a class="btn" href="/api/dataset/export?format=csv">Download CSV</a>
+      <a class="btn" href="/api/dataset/export?format=jsonl">Download JSONL</a>
+      <span class="muted">Only reviewed labels (manual + accepted). Account numbers are already masked.</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Category</th><th>Training rows</th></tr></thead><tbody>` +
+    (s.per_category.map(c => `<tr><td>${esc(c.category)}</td><td>${c.rows}</td></tr>`).join("") || `<tr><td colspan="2" class="muted">No reviewed labels yet.</td></tr>`) +
+    `</tbody></table></div>`;
+}
+
+async function render() {
+  const main = $("#main");
+  try {
+    await loadOverview();
+    await ({ txns: renderTxns, review: renderReview, dups: renderDups, cats: renderCats, data: renderData }[state.tab])(main);
+  } catch (e) { main.innerHTML = `<div class="card">Error: ${esc(e.message)}</div>`; }
+}
+
+$("#tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  state.tab = b.dataset.tab; render();
+});
+$("#syncBtn").onclick = async () => {
+  const b = $("#syncBtn"); b.disabled = true; b.textContent = "Syncing…";
+  try { const r = await api("/api/sync", {}); toast(`Pulled ${r.pulled}, pushed ${r.pushed_labels} labels`); await render(); }
+  catch (e) { toast(e.message); }
+  finally { b.disabled = false; b.textContent = "Sync with phone"; }
+};
+render();
+</script>
+</body>
+</html>

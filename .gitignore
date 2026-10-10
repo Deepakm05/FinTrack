@@ -1,0 +1,21 @@
+# Android
+.gradle/
+build/
+local.properties
+*.keystore
+*.jks
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Never commit personal data
+*.db
+fintrack-dataset.*
+.DS_Store
