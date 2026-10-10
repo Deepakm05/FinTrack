@@ -46,12 +46,14 @@ class ApiServer(private val context: Context, host: String, port: Int) : NanoHTT
                 .put("installed_at", prefs.installedAt)
                 .put("count", store.count())
                 .put("max_version", store.maxVersion())
-                .put("server_time", System.currentTimeMillis()),
+                .put("server_time", System.currentTimeMillis())
+                .put("cycle_start_day", prefs.cycleStartDay),
         )
         Method.GET to "/api/changes" -> {
             val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: 0L
             val limit = (session.parameters["limit"]?.firstOrNull()?.toIntOrNull() ?: 500).coerceIn(1, 2000)
             val rows = store.changesSince(since, limit)
+            markSynced()
             json(
                 Response.Status.OK,
                 JSONObject()
@@ -78,6 +80,7 @@ class ApiServer(private val context: Context, host: String, port: Int) : NanoHTT
                 }
             } ?: emptyMap()
             val applied = store.applyFromPc(categories, labels, dupStates)
+            markSynced()
             json(Response.Status.OK, JSONObject().put("applied", applied))
         }
         Method.POST to "/api/import" -> {
@@ -86,6 +89,12 @@ class ApiServer(private val context: Context, host: String, port: Int) : NanoHTT
             json(Response.Status.OK, JSONObject().put("scanned", result.scanned).put("added", result.added))
         }
         else -> json(Response.Status.NOT_FOUND, JSONObject().put("error", "no such endpoint"))
+    }
+
+    /** Records the sync time and lets the open app refresh its "last synced" line. */
+    private fun markSynced() {
+        prefs.lastPcSyncAt = System.currentTimeMillis()
+        store.notifyChanged()
     }
 
     private fun authorized(session: IHTTPSession): Boolean {

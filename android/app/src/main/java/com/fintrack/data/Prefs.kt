@@ -29,6 +29,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_WIFI_MODE, true)
         set(value) = sp.edit().putBoolean(KEY_WIFI_MODE, value).apply()
 
+    /** Day each spending period starts: [com.fintrack.core.Cycle.LAST_DAY] (default), 1 = calendar month, or 2..28. */
+    var cycleStartDay: Int
+        get() = sp.getInt(KEY_CYCLE_START, com.fintrack.core.Cycle.LAST_DAY)
+        set(value) = sp.edit().putInt(KEY_CYCLE_START, value.coerceIn(0, 28)).apply()
+
+    /** When the PC last pulled from or pushed to this phone (0 = never). */
+    var lastPcSyncAt: Long
+        get() = sp.getLong(KEY_LAST_PC_SYNC, 0)
+        set(value) = sp.edit().putLong(KEY_LAST_PC_SYNC, value).apply()
+
     fun regenerateToken(): String = newToken().also { sp.edit().putString(KEY_TOKEN, it).apply() }
 
     private fun newToken(): String {
@@ -43,5 +53,7 @@ class Prefs(context: Context) {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_TOKEN = "token"
         private const val KEY_WIFI_MODE = "wifi_mode"
+        private const val KEY_CYCLE_START = "cycle_start_day"
+        private const val KEY_LAST_PC_SYNC = "last_pc_sync_at"
     }
 }

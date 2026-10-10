@@ -44,7 +44,6 @@ import java.util.Locale
 
 private enum class Filter(val label: String) { ALL("All"), SPENT("Spent"), RECEIVED("Received"), TODO("Uncategorized") }
 
-private val shortMonth = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
 
 @Composable
 fun ActivityScreen(state: AppUiState, actions: AppActions, modifier: Modifier = Modifier, onOpen: (TxnItem) -> Unit) {
@@ -108,7 +107,7 @@ fun ActivityScreen(state: AppUiState, actions: AppActions, modifier: Modifier = 
             item {
                 SectionCard {
                     EmptyState(
-                        if (query.isNotBlank() || filter != Filter.ALL) "Nothing matches" else "No payments this month",
+                        if (query.isNotBlank() || filter != Filter.ALL) "Nothing matches" else "No payments in this period",
                         if (query.isNotBlank() || filter != Filter.ALL) "Try another search or filter."
                         else "Bank SMS and payment-app notifications appear here as they arrive.",
                     )
@@ -144,11 +143,12 @@ fun MonthStepper(state: AppUiState, actions: AppActions) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLowest, shape = RoundedCornerShape(50)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = actions.prevMonth) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous month")
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous period")
             }
-            Text(state.summary.month.format(shortMonth), style = MaterialTheme.typography.labelLarge)
-            IconButton(onClick = actions.nextMonth, enabled = !state.isCurrentMonth) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next month")
+            Text(com.fintrack.ui.model.UiStateBuilder.periodTitle(state.summary.period, short = true),
+                style = MaterialTheme.typography.labelLarge)
+            IconButton(onClick = actions.nextMonth, enabled = !state.isCurrentPeriod) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next period")
             }
         }
     }

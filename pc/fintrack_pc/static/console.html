@@ -72,7 +72,7 @@
 <div id="toast"></div>
 
 <script>
-const state = { tab: "txns", categories: [], month: new Date().toISOString().slice(0, 7), status: "all", q: "", category: "", source: "" };
+const state = { tab: "txns", categories: [], month: null, period: null, status: "all", q: "", category: "", source: "" };
 const SOURCES = { BANK: "bank SMS", DELIVERY: "delivery app SMS", UPI_APP: "UPI app notification", MERCHANT_APP: "merchant app notification", EMAIL: "email", STATEMENT: "bank statement" };
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -86,15 +86,22 @@ async function api(path, body) {
   return data;
 }
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
-function monthRange(m) { if (!m) return ["", ""]; const [y, mo] = m.split("-").map(Number); const last = new Date(y, mo, 0).getDate(); return [`${m}-01`, `${m}-${String(last).padStart(2, "0")}`]; }
+// Spending periods follow the phone's setting (e.g. 31 Oct – 29 Nov); a period is named by the month it ends in.
+async function periodRange(m) {
+  if (!m) return ["", ""];
+  const p = await api("/api/period?month=" + encodeURIComponent(m));
+  state.period = p;
+  return [p.start, p.end];
+}
 function fmtTime(ms) { return ms ? new Date(Number(ms)).toLocaleString() : "never"; }
 
 async function loadOverview() {
   const o = await api("/api/overview");
   state.categories = o.categories.map(c => c.name);
+  if (!state.month) state.month = o.current_period.month;
   const c = o.counts;
   $("#counts").textContent = `${c.total} records (${c.from_email} email, ${c.from_statements} statement) · ${c.uncategorized} uncategorized · ${c.unreviewed} to review · ` +
-    `${c.duplicates_to_check} duplicates to check · ${c.push_pending} changes not on phone yet · last sync ${fmtTime(o.last_pull_at)}`;
+    `${c.duplicates_to_check} duplicates to check · ${c.push_pending} changes not on phone yet · last synced with phone ${fmtTime(o.last_pull_at)}`;
   return o;
 }
 
@@ -143,11 +150,12 @@ function picked() { return [...document.querySelectorAll(".pick:checked")].map(c
 function wireCheckAll() { const all = $("#all"); if (all) all.addEventListener("change", () => document.querySelectorAll(".pick").forEach(c => c.checked = all.checked)); }
 
 async function renderTxns(main) {
-  const [start, end] = monthRange(state.month);
+  const [start, end] = await periodRange(state.month);
   const params = new URLSearchParams({ start, end, status: state.status, q: state.q, category: state.category, source: state.source });
   const data = await api("/api/transactions?" + params);
   main.innerHTML = `<div class="bar">
-      <input type="month" id="month" value="${esc(state.month)}">
+      <input type="month" id="month" value="${esc(state.month)}" title="Spending period ending in this month">
+      <span class="muted">${esc(state.period ? state.period.title : "")}</span>
       <select id="status">${["all", "uncategorized", "unreviewed", "duplicates"].map(s => `<option ${s === state.status ? "selected" : ""}>${s}</option>`).join("")}</select>
       <select id="catFilter"><option value="">all categories</option>${state.categories.map(n => `<option ${n === state.category ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
       <select id="source"><option value="">all sources</option>${Object.entries(SOURCES).map(([k, v]) => `<option value="${k}" ${k === state.source ? "selected" : ""}>${v}</option>`).join("")}</select>
@@ -208,13 +216,13 @@ async function renderCats(main) {
 
 async function renderData(main) {
   const s = await api("/api/dataset/stats");
-  const [start, end] = monthRange(state.month);
+  const [start, end] = await periodRange(state.month);
   const sum = await api("/api/summary?" + new URLSearchParams({ start, end }));
   main.innerHTML = `<div class="grid">
       <div class="card stat"><span class="muted">Training rows (reviewed)</span><b>${s.training_rows}</b></div>
       <div class="card stat"><span class="muted">Claude labels accepted</span><b>${s.claude_labels_accepted}</b></div>
       <div class="card stat"><span class="muted">Claude labels corrected</span><b>${s.claude_labels_corrected}</b></div>
-      <div class="card stat"><span class="muted">Spent in ${esc(state.month)}</span><b>${inr(sum.total)}</b></div>
+      <div class="card stat"><span class="muted">Spent ${esc(state.period ? state.period.title : "")}</span><b>${inr(sum.total)}</b></div>
     </div>
     <div class="bar"><a class="btn" href="/api/dataset/export?format=csv">Download CSV</a>
       <a class="btn" href="/api/dataset/export?format=jsonl">Download JSONL</a>

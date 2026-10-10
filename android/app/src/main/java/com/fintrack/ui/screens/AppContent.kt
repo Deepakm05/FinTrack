@@ -30,13 +30,16 @@ data class AppUiState(
     val summary: MonthSummary,
     val setup: SetupState,
     val link: LinkState,
-    val isCurrentMonth: Boolean = true,
+    val isCurrentPeriod: Boolean = true,
+    /** See [com.fintrack.core.Cycle]: 0 = last day of month, 1 = calendar month, 2..28 = that day. */
+    val cycleStartDay: Int = com.fintrack.core.Cycle.LAST_DAY,
 )
 
 /** Everything the screens can ask for. Defaults do nothing, for previews and screenshot tests. */
 data class AppActions(
     val prevMonth: () -> Unit = {},
     val nextMonth: () -> Unit = {},
+    val setCycleStart: (Int) -> Unit = {},
     val grantSms: () -> Unit = {},
     val openNotificationAccess: () -> Unit = {},
     val openAppInfo: () -> Unit = {},

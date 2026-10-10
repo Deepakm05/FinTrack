@@ -81,7 +81,8 @@ fun LinkScreen(link: LinkState, actions: AppActions, modifier: Modifier = Modifi
                             Text(if (link.running) "PC link is on" else "PC link is off",
                                 style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (link.running) "Your PC can sync while this is on" else "Turn on to sync with your PC",
+                                (if (link.running) "Your PC can sync while this is on" else "Turn on to sync with your PC") +
+                                    "\nLast synced: " + com.fintrack.ui.model.UiStateBuilder.syncedAgo(link.lastSyncAt),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -149,7 +150,7 @@ fun LinkScreen(link: LinkState, actions: AppActions, modifier: Modifier = Modifi
                     "Keep the phone and PC on the same Wi-Fi.",
                     "Turn PC link on above.",
                     "On the PC run:  fintrack setup --phone-url $address --token <token>",
-                    "Ask Claude: \"categorize my expenses this month\".",
+                    "Ask Claude: \"categorize my expenses this period\".",
                 ) else listOf(
                     "Connect the phone with a USB cable (USB debugging on).",
                     "On the PC run:  adb forward tcp:${link.port} tcp:${link.port}",

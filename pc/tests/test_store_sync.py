@@ -134,3 +134,34 @@ def test_upi_notifications_filter_and_dedupe(app, phone):
     assert app.store.summary(None, None)["total"] == 349 + 40
     app.store.set_labels([("bank", "Food & Dining")], "manual")
     assert app.store.get("gpay")["category"] == app.store.get("swg")["category"] == "Food & Dining"
+
+
+def test_periods_follow_phone_setting(app, phone):
+    from datetime import date
+    from fintrack_pc import periods
+
+    assert periods.containing(date(2026, 11, 10), periods.LAST_DAY).as_dict() == {
+        "start": "2026-10-31", "end": "2026-11-29", "title": "31 Oct – 29 Nov 2026", "month": "2026-11"}
+    assert periods.containing(date(2026, 11, 30), periods.LAST_DAY).start == date(2026, 11, 30)
+    assert periods.for_month("2026-03", periods.LAST_DAY).start == date(2026, 2, 28)
+    assert periods.for_month("2026-10", periods.CALENDAR).title == "October 2026"
+    assert periods.containing(date(2026, 10, 10), 25).start == date(2026, 9, 25)
+
+    assert app.store.cycle_start_day() == 0  # default before any sync
+    sync.pull(app.store, app.phone)
+    assert app.store.cycle_start_day() == 1  # copied from the phone
+
+
+def test_summary_uses_period(app, phone):
+    phone.add("oct30", 100, date="2026-10-30")
+    phone.add("oct31", 200, date="2026-10-31")
+    phone.add("nov29", 300, date="2026-11-29")
+    phone.add("nov30", 400, date="2026-11-30")
+    phone.cycle_start_day = 0
+    from fintrack_pc.mcp_server import build_server
+    from tests_helpers import call
+    server = build_server(app)
+    s = call(server, "spending_summary", {"month": "2026-11"})
+    assert s["total"] == 500 and s["start"] == "2026-10-31" and s["end"] == "2026-11-29"
+    p = call(server, "get_period", {"date_or_month": "2026-11-15"})
+    assert p["title"] == "31 Oct – 29 Nov 2026"

@@ -1,13 +1,13 @@
 package com.fintrack.ui.model
 
 import com.fintrack.core.Direction
+import com.fintrack.core.Period
 import com.fintrack.core.SourceType
 import com.fintrack.data.TxnRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -34,7 +34,7 @@ class UiStateBuilderTest {
             row("maybe", 100, 8, type = SourceType.DELIVERY, key = "ZOMATO", dupOf = "x", dupState = "possible"),
             row("salary", 85000, 1, dir = Direction.CREDIT, body = "INR 85,000 credited by NEFT-ACME CORP."),
         )
-        val m = UiStateBuilder.month(rows, YearMonth.of(2026, 10), today, zone)
+        val m = UiStateBuilder.month(rows, Period(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)), today, zone)
 
         assertEquals((349 + 40 + 245 + 100) * 100L, m.spentPaise)
         assertEquals(8_500_000L, m.receivedPaise)
@@ -52,5 +52,19 @@ class UiStateBuilderTest {
 
         assertEquals(listOf("Food & Dining", "Transport", UNCATEGORIZED), m.categories.map { it.name })
         assertEquals(349f / 734f, m.categories[0].fraction, 1e-4f)
+    }
+
+    @Test fun periodTitlesAndSyncTimes() {
+        assertEquals("October 2026", UiStateBuilder.periodTitle(Period(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31))))
+        assertEquals("Oct 2026", UiStateBuilder.periodTitle(Period(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)), short = true))
+        assertEquals("31 Oct – 29 Nov", UiStateBuilder.periodTitle(Period(LocalDate.of(2026, 10, 31), LocalDate.of(2026, 11, 29))))
+
+        val now = ZonedDateTime.of(2026, 10, 10, 21, 0, 0, 0, zone).toInstant().toEpochMilli()
+        assertEquals("never", UiStateBuilder.syncedAgo(0, now, zone))
+        assertEquals("just now", UiStateBuilder.syncedAgo(now - 20_000, now, zone))
+        assertEquals("12 min ago", UiStateBuilder.syncedAgo(now - 12 * 60_000, now, zone))
+        assertEquals("Today 6:00 PM", UiStateBuilder.syncedAgo(now - 3 * 3_600_000, now, zone))
+        assertEquals("Yesterday 9:00 PM", UiStateBuilder.syncedAgo(now - 24 * 3_600_000, now, zone))
+        assertEquals("8 Oct 9:00 PM", UiStateBuilder.syncedAgo(now - 48 * 3_600_000, now, zone))
     }
 }

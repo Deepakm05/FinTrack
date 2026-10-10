@@ -12,13 +12,17 @@ from pydantic import BaseModel, Field
 from .config import Config
 from .phone import PhoneClient, PhoneError
 from .store import Store, StoreError
+from . import periods
 from . import sync as syncer
 from .email_import import EmailError, import_email as run_email_import
 from .statement_import import StatementError, import_statement as run_statement_import
 
 log = logging.getLogger("fintrack")
 
-INSTRUCTIONS = """FinTrack holds expenses from the user's bank and delivery-app SMS, GPay / PhonePe / Paytm notifications,
+INSTRUCTIONS = """Spending is tracked in periods that follow the user's setting (default: last day of a month to the day
+before the next month's last day). "This month" means the current period: call get_period first, then pass its
+"month" to list_transactions / spending_summary.
+FinTrack holds expenses from the user's bank and delivery-app SMS, GPay / PhonePe / Paytm notifications,
 receipt and bank-alert emails, and bank statements (source_type BANK, DELIVERY, UPI_APP, MERCHANT_APP, EMAIL, STATEMENT;
 masked text, date, amount). Each row's "linked" list holds the other records of the same payment: use them too
 when categorizing (e.g. a UPI debit to a personal UPI ID with a linked Rapido email is Transport).
@@ -64,13 +68,12 @@ class App:
             return f"Saved on the PC; will send to the phone on the next sync. ({e})"
 
 
-def _month_bounds(month: str | None) -> tuple[str | None, str | None]:
+def _period_bounds(app: "App", month: str | None) -> tuple[str | None, str | None]:
+    """[month] names the spending period that ends in it (with calendar months, just that month)."""
     if not month:
         return None, None
-    y, m = (int(x) for x in month.split("-"))
-    start = date(y, m, 1)
-    end = date(y + (m == 12), m % 12 + 1, 1)
-    return start.isoformat(), date.fromordinal(end.toordinal() - 1).isoformat()
+    p = periods.for_month(month, app.store.cycle_start_day())
+    return p.start.isoformat(), p.end.isoformat()
 
 
 def build_server(app: App) -> MCPServer:
@@ -83,6 +86,18 @@ def build_server(app: App) -> MCPServer:
             return syncer.sync(app.store, app.phone) | {"counts": app.store.counts()}
         except PhoneError as e:
             return {"error": str(e)}
+
+    @mcp.tool()
+    def get_period(date_or_month: str | None = None) -> dict:
+        """The user's spending period: today's, the one containing a YYYY-MM-DD date, or the one ending in a YYYY-MM.
+        Periods follow the phone's setting (default: from the last day of a month to the day before the next
+        month's last day, e.g. 31 Oct – 29 Nov). Also says when the phone last synced."""
+        start_day = app.store.cycle_start_day()
+        if date_or_month and len(date_or_month) == 7:
+            p = periods.for_month(date_or_month, start_day)
+        else:
+            p = periods.containing(date.fromisoformat(date_or_month) if date_or_month else date.today(), start_day)
+        return p.as_dict() | {"starts_on": periods.describe(start_day), "last_sync_ms": app.store.get_meta("last_pull_at")}
 
     @mcp.tool()
     def list_categories() -> dict:
@@ -100,7 +115,7 @@ def build_server(app: App) -> MCPServer:
 
     @mcp.tool()
     def list_transactions(
-        month: Annotated[str | None, Field(description="YYYY-MM, e.g. 2026-10")] = None,
+        month: Annotated[str | None, Field(description="YYYY-MM: the spending period ending in that month (see get_period)")] = None,
         start_date: Annotated[str | None, Field(description="YYYY-MM-DD (ignored when month is given)")] = None,
         end_date: Annotated[str | None, Field(description="YYYY-MM-DD (ignored when month is given)")] = None,
         status: Literal["uncategorized", "unreviewed", "all"] = "uncategorized",
@@ -112,7 +127,7 @@ def build_server(app: App) -> MCPServer:
     ) -> dict:
         """List transactions with their masked SMS text, so you can decide categories."""
         note = app.try_sync() if sync_first else None
-        start, end = _month_bounds(month) if month else (start_date, end_date)
+        start, end = _period_bounds(app, month) if month else (start_date, end_date)
         rows, total = app.store.list_transactions(
             start=start, end=end, status=status, direction=direction,
             source=None if source == "ALL" else source,
@@ -135,16 +150,17 @@ def build_server(app: App) -> MCPServer:
 
     @mcp.tool()
     def spending_summary(
-        month: Annotated[str | None, Field(description="YYYY-MM")] = None,
+        month: Annotated[str | None, Field(description="YYYY-MM: the spending period ending in that month (see get_period)")] = None,
         start_date: str | None = None,
         end_date: str | None = None,
         group_by: Literal["category", "month", "day", "sender"] = "category",
         direction: Literal["DEBIT", "CREDIT"] = "DEBIT",
     ) -> dict:
         """Totals (duplicates excluded). DEBIT = spending, CREDIT = money received."""
-        start, end = _month_bounds(month) if month else (start_date, end_date)
+        note = app.try_sync()  # fresh numbers and the phone's current period setting
+        start, end = _period_bounds(app, month) if month else (start_date, end_date)
         try:
-            return app.store.summary(start, end, group_by=group_by, direction=direction)
+            return app.store.summary(start, end, group_by=group_by, direction=direction) | {"note": note}
         except StoreError as e:
             return {"error": str(e)}
 

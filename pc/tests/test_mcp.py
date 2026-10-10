@@ -4,21 +4,14 @@ import json
 from fintrack_pc.mcp_server import build_server
 
 
-def call(server, name, args=None):
-    result = asyncio.run(server.call_tool(name, args or {}))
-    if getattr(result, "structured_content", None) is not None:
-        data = result.structured_content
-    elif getattr(result, "structuredContent", None) is not None:
-        data = result.structuredContent
-    else:
-        data = json.loads(result.content[0].text)
-    return data.get("result", data) if isinstance(data, dict) and set(data) == {"result"} else data
+from tests_helpers import call  # noqa: E402
+
 
 
 def test_tools_listed(app):
     names = {t.name for t in asyncio.run(build_server(app).list_tools())}
     assert {"sync_phone", "list_transactions", "categorize", "list_categories", "add_category",
-            "spending_summary", "import_older_sms", "import_email", "import_statement"} <= names
+            "spending_summary", "import_older_sms", "import_email", "import_statement", "get_period"} <= names
 
 
 def test_categorize_flow(app, phone):

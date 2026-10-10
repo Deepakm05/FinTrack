@@ -119,10 +119,22 @@ Then ask Claude, for example:
 | `list_transactions` | masked SMS text, date, amount (filters: month, status, direction) |
 | `categorize` | set categories (`[{uid, category}]`); labels start as **unreviewed** |
 | `list_categories` / `add_category` | the category list |
-| `spending_summary` | totals by category, month, day or sender (duplicates excluded) |
+| `get_period` | the current spending period (or the one for a date / month) and when the phone last synced |
+| `spending_summary` | totals by category, month, day or sender for a period (duplicates excluded) |
 | `import_older_sms` | ask the phone to scan its inbox |
 | `import_email` | fetch receipt / bank alert emails from Gmail |
 | `import_statement` | import a bank statement file (CSV / XLSX / XLS / PDF) |
+
+## Spending periods and last sync
+
+- **Periods:** totals are shown per spending period, not per calendar month. By default a period starts on the **last
+  day of a month** and ends the day before the next month's last day: 30 Sep – 30 Oct, 31 Oct – 29 Nov,
+  30 Nov – 30 Dec. That suits a salary credited at month end. Tap the period name on the phone's Home screen to switch
+  to calendar months or to a fixed day (2–28, e.g. the 25th). The PC copies the setting on every sync, so Claude, the
+  console and `spending_summary` all use the same periods. A period is named after the month it ends in, so
+  "November" means 31 Oct – 29 Nov.
+- **Last sync:** the phone records every time the PC pulls or pushes. It shows "synced 5 min ago" on Home and on the
+  PC link tab. The console header shows when the PC last synced with the phone.
 
 ## 4. Receipt emails (Gmail)
 

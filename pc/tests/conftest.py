@@ -24,6 +24,7 @@ class FakePhone:
         self.labels: dict[str, str | None] = {}
         self.dup_states: dict[str, str] = {}
         self.page_size = 500
+        self.cycle_start_day = 1
 
     def add(self, uid, amount, body="Rs spent", sender="HDFCBK", source="BANK", direction="DEBIT",
             date="2026-10-10", sent_at=1791000000000, dup_of=None, dup_state=None):
@@ -40,7 +41,8 @@ class FakePhone:
             return httpx.Response(401, json={"error": "missing or wrong token"})
         path = request.url.path
         if path == "/api/status":
-            return httpx.Response(200, json={"device_id": self.device_id, "count": len(self.rows), "max_version": self.version})
+            return httpx.Response(200, json={"device_id": self.device_id, "count": len(self.rows), "max_version": self.version,
+                                             "cycle_start_day": self.cycle_start_day})
         if path == "/api/changes":
             since = int(request.url.params.get("since", 0))
             limit = min(int(request.url.params.get("limit", 500)), self.page_size)

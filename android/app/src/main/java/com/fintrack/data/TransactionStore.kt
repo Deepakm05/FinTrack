@@ -140,9 +140,10 @@ class TransactionStore private constructor(context: Context) :
     fun recent(limit: Int): List<TxnRow> =
         query("SELECT * FROM txn ORDER BY sent_at DESC LIMIT ?", limit.toString())
 
-    /** Rows whose transaction date starts with [yearMonth] ("2026-10"). */
-    fun forMonth(yearMonth: String): List<TxnRow> =
-        query("SELECT * FROM txn WHERE txn_date LIKE ? ORDER BY sent_at DESC", "$yearMonth-%")
+    /** Rows whose transaction date falls in [period] (both ends inclusive). */
+    fun forPeriod(period: com.fintrack.core.Period): List<TxnRow> =
+        query("SELECT * FROM txn WHERE txn_date BETWEEN ? AND ? ORDER BY sent_at DESC",
+            period.start.toString(), period.end.toString())
 
     fun count(): Long = readableDatabase.rawQuery("SELECT COUNT(*) FROM txn", null).use { it.moveToFirst(); it.getLong(0) }
 
@@ -182,7 +183,7 @@ class TransactionStore private constructor(context: Context) :
 
     fun removeListener(listener: () -> Unit) = listeners.remove(listener)
 
-    private fun notifyChanged() = listeners.forEach { it() }
+    fun notifyChanged() = listeners.forEach { it() }
 
     private fun query(sql: String, vararg args: String): List<TxnRow> =
         readableDatabase.rawQuery(sql, args).use { c -> buildList { while (c.moveToNext()) add(c.toRow()) } }

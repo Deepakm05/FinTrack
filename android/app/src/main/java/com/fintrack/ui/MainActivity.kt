@@ -40,7 +40,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.YearMonth
+import com.fintrack.core.Cycle
+import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
 
@@ -71,16 +72,18 @@ class MainActivity : ComponentActivity() {
         val prefs = remember { Prefs(this) }
         val store = remember { TransactionStore.get(this) }
         val scope = rememberCoroutineScope()
-        var month by remember { mutableStateOf(YearMonth.now()) }
-        var summary by remember { mutableStateOf(MonthSummary.empty(month)) }
+        var cycleStart by remember { mutableIntStateOf(prefs.cycleStartDay) }
+        var period by remember { mutableStateOf(Cycle.containing(LocalDate.now(), cycleStart)) }
+        var summary by remember { mutableStateOf(MonthSummary.empty(period)) }
 
         val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             onChanged()
         }
 
-        LaunchedEffect(tick, month) {
-            summary = withContext(Dispatchers.IO) { UiStateBuilder.month(store.forMonth(month.toString()), month) }
+        LaunchedEffect(tick, period) {
+            summary = withContext(Dispatchers.IO) { UiStateBuilder.month(store.forPeriod(period), period) }
         }
+        val current = Cycle.containing(LocalDate.now(), cycleStart)
 
         val state = AppUiState(
             summary = summary,
@@ -92,15 +95,22 @@ class MainActivity : ComponentActivity() {
                 port = Prefs.PORT,
                 token = prefs.token,
                 error = LinkService.lastError,
+                lastSyncAt = prefs.lastPcSyncAt,
             ),
-            isCurrentMonth = month >= YearMonth.now(),
+            isCurrentPeriod = !period.start.isBefore(current.start),
+            cycleStartDay = cycleStart,
         )
 
         fun refreshSoon() = scope.launch { delay(600); onChanged() }
 
         val actions = AppActions(
-            prevMonth = { month = month.minusMonths(1) },
-            nextMonth = { if (month < YearMonth.now()) month = month.plusMonths(1) },
+            prevMonth = { period = Cycle.previous(period, cycleStart) },
+            nextMonth = { if (period.start.isBefore(current.start)) period = Cycle.next(period, cycleStart) },
+            setCycleStart = { day ->
+                prefs.cycleStartDay = day
+                cycleStart = day
+                period = Cycle.containing(LocalDate.now(), day)
+            },
             grantSms = {
                 val perms = mutableListOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
                 if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS

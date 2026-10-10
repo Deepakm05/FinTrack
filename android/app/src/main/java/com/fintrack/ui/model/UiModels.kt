@@ -1,6 +1,7 @@
 package com.fintrack.ui.model
 
 import com.fintrack.core.Direction
+import com.fintrack.core.Period
 import com.fintrack.core.SourceType
 import com.fintrack.core.TitleExtractor
 import com.fintrack.data.TxnRow
@@ -35,7 +36,7 @@ data class DayGroup(val date: LocalDate, val label: String, val spentPaise: Long
 data class CategorySlice(val name: String, val paise: Long, val fraction: Float)
 
 data class MonthSummary(
-    val month: YearMonth,
+    val period: Period,
     val spentPaise: Long,
     val receivedPaise: Long,
     val payments: Int,
@@ -47,7 +48,7 @@ data class MonthSummary(
     val items: List<TxnItem> get() = days.flatMap { it.items }
 
     companion object {
-        fun empty(month: YearMonth) = MonthSummary(month, 0, 0, 0, 0, 0, emptyList(), emptyList())
+        fun empty(period: Period) = MonthSummary(period, 0, 0, 0, 0, 0, emptyList(), emptyList())
     }
 }
 
@@ -62,6 +63,8 @@ data class LinkState(
     val port: Int,
     val token: String,
     val error: String?,
+    /** Epoch millis of the last PC sync, or 0 if the PC never synced. */
+    val lastSyncAt: Long = 0,
 )
 
 const val UNCATEGORIZED = "Uncategorized"
@@ -74,7 +77,7 @@ object UiStateBuilder {
 
     fun month(
         rows: List<TxnRow>,
-        month: YearMonth,
+        period: Period,
         today: LocalDate = LocalDate.now(),
         zone: ZoneId = ZoneId.systemDefault(),
     ): MonthSummary {
@@ -120,7 +123,7 @@ object UiStateBuilder {
         }
 
         return MonthSummary(
-            month = month,
+            period = period,
             spentPaise = spent,
             receivedPaise = counted.filter { it.direction == Direction.CREDIT }.sumOf { it.amountPaise },
             payments = counted.size,
@@ -129,6 +132,34 @@ object UiStateBuilder {
             categories = slices,
             days = days,
         )
+    }
+
+    private val shortDate = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+    private val monthYear = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH)
+    private val shortMonthYear = DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)
+
+    /** "October 2026" for calendar months, "31 Oct – 29 Nov" otherwise. */
+    fun periodTitle(p: Period, short: Boolean = false): String =
+        if (p.start.dayOfMonth == 1 && p.end == YearMonth.from(p.start).atEndOfMonth()) {
+            p.start.format(if (short) shortMonthYear else monthYear)
+        } else {
+            "${p.start.format(shortDate)} – ${p.end.format(shortDate)}"
+        }
+
+    /** "just now", "12 min ago", "Today 8:41 PM", "Yesterday 9:05 AM", "8 Oct 7:02 PM". */
+    fun syncedAgo(at: Long, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
+        if (at <= 0) return "never"
+        val mins = (now - at) / 60_000
+        if (mins < 1) return "just now"
+        if (mins < 60) return "$mins min ago"
+        val t = Instant.ofEpochMilli(at).atZone(zone)
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val time = t.format(timeFormat)
+        return when (t.toLocalDate()) {
+            today -> "Today $time"
+            today.minusDays(1) -> "Yesterday $time"
+            else -> "${t.format(shortDate)} $time"
+        }
     }
 
     fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {

@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -17,6 +18,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .email_import import EmailError, import_email
+from . import periods
 from .phone import PhoneError
 from .statement_import import StatementError, import_statement
 from .store import StoreError
@@ -70,8 +72,15 @@ def build_console(app) -> Starlette:
         )
         return JSONResponse({"total": total, "rows": rows})
 
+    async def period(req: Request) -> Response:
+        start_day = store.cycle_start_day()
+        month = req.query_params.get("month")
+        p = periods.for_month(month, start_day) if month else periods.containing(date.today(), start_day)
+        return JSONResponse(p.as_dict() | {"starts_on": periods.describe(start_day)})
+
     async def overview(_: Request) -> Response:
         return JSONResponse({
+            "current_period": periods.containing(date.today(), store.cycle_start_day()).as_dict(),
             "counts": store.counts(),
             "categories": store.category_counts(),
             "last_pull_at": store.get_meta("last_pull_at"),
@@ -166,6 +175,7 @@ def build_console(app) -> Starlette:
         routes=[
             Route("/", index),
             Route("/api/overview", overview),
+            Route("/api/period", period),
             Route("/api/transactions", transactions),
             Route("/api/label", label, methods=["POST"]),
             Route("/api/accept", accept, methods=["POST"]),

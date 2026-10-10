@@ -13,6 +13,8 @@ def pull(store: Store, phone: PhoneClient) -> dict:
         # New phone or reinstalled app: its rows have new ids, so read everything again.
         store.set_meta("device_id", device)
         store.set_meta("phone_version", "0")
+    if "cycle_start_day" in status:
+        store.set_meta("cycle_start_day", str(int(status["cycle_start_day"])))
     since = int(store.get_meta("phone_version", "0") or 0)
     pulled = 0
     while True:

@@ -21,7 +21,12 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +35,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.KeyboardType
+import com.fintrack.core.Cycle
+import com.fintrack.ui.model.UiStateBuilder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,7 +51,6 @@ import com.fintrack.ui.theme.AmountStyle
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val monthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH)
 
 @Composable
 fun HomeScreen(
@@ -81,8 +92,8 @@ fun HomeScreen(
                 val recent = s.items.take(5)
                 if (recent.isEmpty()) {
                     EmptyState("No payments yet",
-                        if (state.isCurrentMonth) "New bank SMS and payment-app notifications show up here as they arrive."
-                        else "Nothing was recorded this month.")
+                        if (state.isCurrentPeriod) "New bank SMS and payment-app notifications show up here as they arrive."
+                        else "Nothing was recorded in this period.")
                 } else {
                     recent.forEachIndexed { i, item ->
                         if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -104,8 +115,11 @@ private fun Header(state: AppUiState, actions: AppActions, onOpenLink: () -> Uni
                 Box(Modifier.size(8.dp).clip(CircleShape).background(
                     if (state.link.running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
                 Spacer(Modifier.width(6.dp))
-                Text(if (state.link.running) "PC link on" else "PC link off",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    (if (state.link.running) "PC link on" else "PC link off") +
+                        " · synced " + UiStateBuilder.syncedAgo(state.link.lastSyncAt),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         if (!state.link.running) TextButton(onClick = onOpenLink) { Text("Connect PC") }
@@ -116,16 +130,23 @@ private fun Header(state: AppUiState, actions: AppActions, onOpenLink: () -> Uni
 private fun HeroCard(state: AppUiState, actions: AppActions) {
     val s = state.summary
     val onHero = MaterialTheme.colorScheme.onPrimaryContainer
+    var choosing by remember { mutableStateOf(false) }
     Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = onHero, shape = RoundedCornerShape(24.dp)) {
         Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = actions.prevMonth) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous month")
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous period")
                 }
-                Text(s.month.format(monthFormat), style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                IconButton(onClick = actions.nextMonth, enabled = !state.isCurrentMonth) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next month")
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { choosing = true }.padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(UiStateBuilder.periodTitle(s.period), style = MaterialTheme.typography.titleSmall)
+                    Text("Starts on: ${Cycle.describe(state.cycleStartDay).lowercase()} ▾", style = MaterialTheme.typography.labelSmall,
+                        color = onHero.copy(alpha = 0.7f))
+                }
+                IconButton(onClick = actions.nextMonth, enabled = !state.isCurrentPeriod) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next period")
                 }
             }
             Column(Modifier.padding(horizontal = 16.dp)) {
@@ -147,6 +168,51 @@ private fun HeroCard(state: AppUiState, actions: AppActions) {
             }
         }
     }
+    if (choosing) {
+        CycleDialog(state.cycleStartDay, onPick = { actions.setCycleStart(it); choosing = false }, onDismiss = { choosing = false })
+    }
+}
+
+@Composable
+private fun CycleDialog(current: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    var custom by remember { mutableStateOf(if (current in 2..28) current.toString() else "25") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Each period starts on") },
+        text = {
+            Column {
+                listOf(Cycle.LAST_DAY, Cycle.CALENDAR).forEach { day ->
+                    Row(Modifier.fillMaxWidth().clickable { onPick(day) }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = current == day, onClick = { onPick(day) })
+                        Column {
+                            Text(Cycle.describe(day), style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (day == Cycle.LAST_DAY) "e.g. 31 Oct – 29 Nov, for a salary credited at month end"
+                                else "1 Oct – 31 Oct",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = current in 2..28, onClick = { custom.toIntOrNull()?.takeIf { it in 2..28 }?.let(onPick) })
+                    Text("Day", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedTextField(
+                        value = custom, onValueChange = { v -> custom = v.filter { it.isDigit() }.take(2) },
+                        singleLine = true, modifier = Modifier.width(72.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { custom.toIntOrNull()?.takeIf { it in 2..28 }?.let(onPick) }) { Text("Use") }
+                }
+                Text("The PC uses the same periods after its next sync.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
 
 @Composable

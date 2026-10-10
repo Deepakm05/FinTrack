@@ -7,7 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
+import com.fintrack.core.Cycle
 import com.fintrack.core.Direction
+import com.fintrack.core.Period
 import com.fintrack.core.SourceType
 import com.fintrack.data.TxnRow
 import com.fintrack.ui.model.LinkState
@@ -22,7 +24,6 @@ import com.fintrack.ui.theme.FinTrackTheme
 import org.junit.Rule
 import org.junit.Test
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -60,10 +61,13 @@ class ScreenshotTest {
         row("salary", 85000, 1, 9, 30, SourceType.BANK, "AXISBK", "INR 85,000.00 credited to A/c no. XXXX on 01-10-2026 by NEFT-ACME CORP.", dir = Direction.CREDIT, category = "Transfers"),
     )
 
-    private val summary = UiStateBuilder.month(rows, YearMonth.of(2026, 10), today, zone)
+    private val october = Period(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31))
+    private val summary = UiStateBuilder.month(rows, october, today, zone)
     private val link = LinkState(running = true, wifiMode = true, wifiAddress = "192.168.1.5", port = 8765,
-        token = "q3Zt9xVb2LmN8kPwR4sYc1Hd", error = null)
-    private val state = AppUiState(summary, SetupState(smsGranted = true, notificationAccess = true), link)
+        token = "q3Zt9xVb2LmN8kPwR4sYc1Hd", error = null,
+        lastSyncAt = ZonedDateTime.of(2026, 10, 10, 20, 50, 0, 0, zone).toInstant().toEpochMilli())
+    private val state = AppUiState(summary, SetupState(smsGranted = true, notificationAccess = true), link,
+        cycleStartDay = Cycle.CALENDAR)
 
     private fun shot(name: String, dark: Boolean = false, content: @Composable () -> Unit) =
         paparazzi.snapshot(name) { FinTrackTheme(darkTheme = dark) { content() } }
@@ -78,8 +82,14 @@ class ScreenshotTest {
     }
 
     @Test fun homeEmpty() = shot("home_empty") {
-        FinTrackAppContent(state.copy(summary = UiStateBuilder.month(emptyList(), YearMonth.of(2026, 10), today, zone),
+        FinTrackAppContent(state.copy(summary = UiStateBuilder.month(emptyList(), october, today, zone),
             setup = SetupState(smsGranted = false, notificationAccess = false), link = link.copy(running = false)), AppActions())
+    }
+
+    /** Default setting: periods start on the last day of the month (salary at month end). */
+    @Test fun homeSalaryCycle() = shot("home_salary_cycle") {
+        val p = Period(LocalDate.of(2026, 9, 30), LocalDate.of(2026, 10, 30))
+        FinTrackAppContent(state.copy(summary = UiStateBuilder.month(rows, p, today, zone), cycleStartDay = Cycle.LAST_DAY), AppActions())
     }
 
     @Test fun activityLight() = shot("activity_light") { FinTrackAppContent(state, AppActions(), initialTab = Tab.ACTIVITY) }

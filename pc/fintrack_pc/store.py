@@ -140,6 +140,10 @@ class Store:
             row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
+    def cycle_start_day(self) -> int:
+        """Day spending periods start (copied from the phone on sync); 0 = last day of the month."""
+        return int(self.get_meta("cycle_start_day", "0") or 0)
+
     def set_meta(self, key: str, value: str) -> None:
         with self.connect() as db:
             self._set_meta(db, key, value)
